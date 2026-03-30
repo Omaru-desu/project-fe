@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 const sampleUser = {
     id: "1",
     email: "omaru@gmail.com",
-    password: "omaru123",
+    password: "omarutidur1",
 };
 
 const loginSchema = z.object({
