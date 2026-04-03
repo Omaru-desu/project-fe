@@ -1,25 +1,36 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr"
 
-import { NextRequest, NextResponse } from "next/server";
-import { verifySessionToken } from "./lib/session";
+export async function proxy(request: NextRequest) {
+    let response = NextResponse.next({ request })
 
-const protectedRoutes = ["/dashboard"];
-const publicRoutes = ["/login"];
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+            cookies: {
+                getAll: () => request.cookies.getAll(),
+                setAll: (cookiesToSet) => {
+                    cookiesToSet.forEach(({ name, value, options }) =>
+                        response.cookies.set(name, value, options)
+                    )
+                },
+            },
+        }
+    )
 
-export default async function proxy(req: NextRequest) {
-    const path = req.nextUrl.pathname;
-    const isProtectedRoute = protectedRoutes.includes(path);
-    const isPublicRoute = publicRoutes.includes(path);
+    const { data: { user } } = await supabase.auth.getUser()
 
-    const token = req.cookies.get("auth_token")?.value;
-    const session = await verifySessionToken(token);
-
-    if (isProtectedRoute && !session?.uid) {
-        return NextResponse.redirect(new URL("/login", req.nextUrl));
+    if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
+        return NextResponse.redirect(new URL("/login", request.url))
+    }
+    if (user && request.nextUrl.pathname.startsWith("/login")) {
+        return NextResponse.redirect(new URL("/dashboard", request.url))
     }
 
-    if (isPublicRoute && session?.uid) {
-        return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
-    }
+    return response
+}
 
-    return NextResponse.next();
+export const config = {
+    matcher: ["/dashboard/:path*", "/login"],
 }
