@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken } from "./lib/session";
 
-const protectedRoutes = ["/dashboard"];
+const protectedRoutes = ["/dashboard", "/projects"];
 const publicRoutes = ["/login"];
 
 export default async function proxy(req: NextRequest) {
