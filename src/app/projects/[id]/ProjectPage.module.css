@@ -1,0 +1,611 @@
+.page {
+    min-height: 100vh;
+    background: #0a1628;
+    color: var(--mist);
+    font-family: 'Raleway', sans-serif;
+    display: flex;
+    flex-direction: column;
+}
+
+.loading {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0a1628;
+}
+
+.loadingSpinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(0, 144, 204, 0.2);
+    border-top-color: var(--ocean-lt);
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: #0d1e30;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(20px);
+    height: 62px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2rem;
+    gap: 16px;
+}
+
+.topbarLeft {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.topbarRight {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.backBtn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--slate);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 8px;
+    transition: all 0.2s;
+    font-family: 'Raleway', sans-serif;
+}
+
+.backBtn:hover {
+    color: var(--mist);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.dividerV {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+
+.logoMark {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--ocean), var(--teal));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.projectTitle {
+    font-family: 'Playfair Display', serif;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.btnUpload {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    border: none;
+    color: #fff;
+    font-family: 'Raleway', sans-serif;
+    background: linear-gradient(135deg, var(--ocean), var(--teal));
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: all 0.25s;
+    box-shadow: 0 0 0 1px rgba(0, 180, 160, 0.3), 0 4px 20px rgba(0, 109, 158, 0.5);
+}
+
+.btnUpload:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 0 1px rgba(0, 200, 180, 0.4), 0 8px 28px rgba(0, 109, 158, 0.6);
+}
+
+.statsBar {
+    background: #0c1b2a;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 12px 2rem;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.statItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.statDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.statDotTotal {
+    background: var(--ocean-lt);
+    box-shadow: 0 0 6px rgba(0, 144, 204, 0.5);
+}
+
+.statDotReviewed {
+    background: var(--teal);
+    box-shadow: 0 0 6px rgba(0, 180, 160, 0.5);
+}
+
+.statDotNeeds {
+    background: var(--coral);
+    box-shadow: 0 0 6px rgba(232, 97, 58, 0.5);
+}
+
+.statLbl {
+    font-size: 12px;
+    color: var(--slate);
+    font-weight: 600;
+}
+
+.statVal {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--mist);
+}
+
+.statDiv {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+}
+
+.progressWrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.progressTrack {
+    width: 140px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progressFill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--ocean), var(--teal));
+    border-radius: 2px;
+    transition: width 0.4s;
+}
+
+.progressPct {
+    font-size: 12px;
+    color: var(--slate);
+    font-weight: 600;
+}
+
+/* when a card is selected */
+.bulkBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(90deg, rgba(0, 109, 158, 0.25), rgba(0, 180, 160, 0.15));
+    border-bottom: 1px solid var(--border);
+    padding: 10px 2rem;
+    font-size: 13px;
+    color: var(--mist);
+}
+
+.bulkBtn {
+    padding: 5px 14px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: rgba(0, 150, 210, 0.15);
+    color: var(--mist);
+    font-family: 'Raleway', sans-serif;
+    transition: all 0.15s;
+}
+
+.bulkBtn:hover {
+    background: rgba(0, 150, 210, 0.25);
+}
+
+.bulkBtnDanger {
+    background: rgba(232, 97, 58, 0.15);
+    border-color: rgba(232, 97, 58, 0.3);
+    color: var(--coral);
+    margin-left: 10px;
+}
+
+.bulkBtnDanger:hover {
+    background: rgba(232, 97, 58, 0.25);
+}
+
+.toolbar {
+    padding: 12px 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: #0b1926;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.toolbarLeft {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.toolbarRight {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.searchBox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 7px 14px;
+    min-width: 220px;
+    transition: border-color 0.2s;
+}
+
+.searchBox:focus-within {
+    border-color: var(--ocean-lt);
+}
+
+.searchInput {
+    border: none;
+    background: none;
+    outline: none;
+    font-size: 13px;
+    color: var(--mist);
+    width: 100%;
+    font-family: 'Raleway', sans-serif;
+}
+
+.searchInput::placeholder {
+    color: var(--slate);
+}
+
+.filterBtn {
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--slate);
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04) !important;
+    transition: all 0.2s;
+    font-family: 'Raleway', sans-serif;
+}
+
+.filterBtn:hover {
+    color: var(--mist);
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.filterBtnActive {
+    background: rgba(0, 144, 204, 0.25) !important;
+    color: var(--ocean-lt);
+    border-color: rgba(0, 144, 204, 0.5);
+}
+
+.selectAllLabel {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--slate);
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.selectAllCb {
+    accent-color: var(--ocean-lt);
+}
+
+.sortSelect {
+    font-size: 13px;
+    color: var(--slate);
+    font-weight: 600;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+    outline: none;
+    font-family: 'Raleway', sans-serif;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 20px 2rem 32px;
+    flex: 1;
+}
+
+.emptyState {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--slate);
+    font-size: 14px;
+}
+
+.card {
+    background: #0d1e30;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: all 0.2s;
+    position: relative;
+    align-self: flex-start;
+}
+
+.card:hover {
+    transform: translateY(-3px);
+    border-color: var(--ocean);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.cardSelected {
+    border-color: var(--ocean) !important;
+    box-shadow: 0 0 0 1px rgba(0, 109, 158, 0.2), 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+.cardCheckbox {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    z-index: 2;
+    border: 1.5px solid rgba(255, 255, 255, 0.5);
+    background: rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    backdrop-filter: blur(4px);
+}
+
+.cardCheckboxChecked {
+    background: var(--ocean-lt);
+    border-color: var(--ocean-lt);
+}
+
+.cardImg {
+    width: 100%;
+    height: 170px;
+    background: var(--ink);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.cardCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.frameBadge {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.65);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 5px;
+    letter-spacing: 0.04em;
+    backdrop-filter: blur(4px);
+}
+
+.cardBody {
+    padding: 14px 20px;
+}
+
+.cardHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 8px;
+}
+
+.cardLabel {
+    font-family: 'Playfair Display', serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.cardTaxon {
+    font-size: 11px;
+    color: var(--slate);
+    margin-top: 2px;
+    font-style: italic;
+}
+
+.statusPill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.statusReviewed {
+    background: rgba(0, 180, 160, 0.12);
+    color: var(--teal);
+    border: 1px solid rgba(0, 180, 160, 0.25);
+}
+
+.statusNeeds {
+    background: rgba(232, 97, 58, 0.12);
+    color: var(--coral);
+    border: 1px solid rgba(232, 97, 58, 0.25);
+}
+
+.confRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.confLbl {
+    font-size: 11px;
+    color: var(--slate);
+    flex-shrink: 0;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.confBar {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.confFill {
+    height: 100%;
+    border-radius: 2px;
+}
+
+.confFillHigh {
+    background: linear-gradient(90deg, #00917f, var(--teal));
+}
+
+.confFillMid {
+    background: linear-gradient(90deg, var(--ocean), var(--ocean-lt));
+}
+
+.confFillLow {
+    background: linear-gradient(90deg, #b83a1a, var(--coral));
+}
+
+.confVal {
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.confValHigh {
+    color: var(--teal);
+}
+
+.confValMid {
+    color: var(--ocean-lt);
+}
+
+.confValLow {
+    color: var(--coral);
+}
+
+.cardFooter {
+    border-top: 1px solid var(--border);
+    padding-top: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.btnReview {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    border: 1px solid rgba(232, 97, 58, 0.35);
+    background: rgba(232, 97, 58, 0.12);
+    color: var(--coral);
+    font-family: 'Raleway', sans-serif;
+    transition: all 0.15s;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.btnReview:hover {
+    background: rgba(232, 97, 58, 0.22);
+}
+
+.btnReviewed {
+    font-size: 11px;
+    color: var(--teal);
+    background: none;
+    border: none;
+    cursor: default;
+    padding: 5px 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+}
+
+.btnDetail {
+    font-size: 12px;
+    color: var(--ocean-lt);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 5px 0;
+    font-weight: 600;
+    font-family: 'Raleway', sans-serif;
+    transition: color 0.15s;
+}
+
+.btnDetail:hover {
+    color: var(--teal);
+}
