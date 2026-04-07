@@ -1,5 +1,3 @@
-"use client";
-
 import { logout } from "../login/actions";
 
 export default function Dashboard() {
@@ -12,13 +10,15 @@ export default function Dashboard() {
                 <p className="text-[0.85rem] text-[#4a6880] mb-8">
                     You&apos;re signed in to Omaru.
                 </p>
-                <button
-                    onClick={() => logout()}
-                    className="px-8 py-3 rounded-[10px] bg-[#0d1f2d] text-white text-[0.88rem] font-bold cursor-pointer transition-all duration-300 hover:bg-gradient-to-br hover:from-[#006d9e] hover:to-[#00b4a0] border-none"
-                    style={{ fontFamily: "'Raleway', sans-serif" }}
-                >
-                    Logout
-                </button>
+                <form action={logout}>
+                    <button
+                        type="submit"
+                        className="px-8 py-3 rounded-[10px] bg-[#0d1f2d] text-white text-[0.88rem] font-bold cursor-pointer transition-all duration-300 hover:bg-gradient-to-br hover:from-[#006d9e] hover:to-[#00b4a0] border-none"
+                        style={{ fontFamily: "'Raleway', sans-serif" }}
+                    >
+                        Logout
+                    </button>
+                </form>
             </div>
         </div>
     );

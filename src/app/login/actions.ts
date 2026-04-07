@@ -1,14 +1,27 @@
 "use server";
 
 import { z } from "zod";
-import { createUserSession, clearUserSession } from "../../lib/session";
 import { redirect } from "next/navigation";
+import { createServerSupabaseClient } from "@/src/lib/supabase/client";
 
-const sampleUser = {
-    id: "1",
-    email: "omaru@gmail.com",
-    password: "omarutidur1",
-};
+// const sampleUser = {
+//     id: "1",
+//     email: "omaru@gmail.com",
+//     password: "omarutidur1",
+// };
+
+export async function getAnnotations() {
+    const supabase = await createServerSupabaseClient()
+    const { data: { session } } = await supabase.auth.getSession()
+
+    const res = await fetch("http://your-fastapi/api/annotations", {
+        headers: {
+            Authorization: `Bearer ${session?.access_token}`
+        }
+    })
+
+    return res.json()
+}
 
 const loginSchema = z.object({
     email: z.string().email({ message: "Invalid email address or password" }).trim(),
@@ -36,38 +49,42 @@ export async function login(prevState: unknown, formData: FormData) {
         };
     }
 
-    const { email, password } = result.data;
+    const supabase = await createServerSupabaseClient()
+    const { error } = await supabase.auth.signInWithPassword({
+        email: result.data.email,
+        password: result.data.password,
+    })
 
-    const isCorrectUser =
-        email === sampleUser.email && password === sampleUser.password;
+    if (error) return { errors: { email: ["Invalid email or password"] } }
 
-    if (!isCorrectUser) {
-        return {
-            errors: {
-                email: ["Invalid email or password"],
-            },
-        };
-    }
-
-    await createUserSession(sampleUser.id);
-
-    redirect("/dashboard");
+    redirect("/dashboard")
 }
 
 export async function logout() {
-    await clearUserSession();
-    redirect("/login");
+    const supabase = await createServerSupabaseClient()
+    await supabase.auth.signOut()
+    redirect("/login")
 }
 
 export async function register(prevState: unknown, formData: FormData) {
     const result = registerSchema.safeParse(Object.fromEntries(formData));
 
     if (!result.success) {
-        return {
-            errors: result.error.flatten().fieldErrors,
-        };
+        return { errors: result.error.flatten().fieldErrors };
     }
 
-    await createUserSession("2");
+    const { firstName, lastName, email, org, password } = result.data;
+    const supabase = await createServerSupabaseClient()
+
+    const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+            data: { first_name: firstName, last_name: lastName, org }
+        }
+    })
+
+    if (error) return { errors: { email: [error.message] } }
+
     redirect("/dashboard");
 }
