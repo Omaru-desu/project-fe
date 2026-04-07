@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",
-    "@supabase/supabase-js": "^2.101.1",
+    "@supabase/supabase-js": "^2.102.0",
     "axios": "^1.13.6",
     "jose": "^6.2.2",
     "lucide-react": "^1.7.0",
