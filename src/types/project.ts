@@ -38,3 +38,13 @@ export interface ProjectDetail {
     framesProcessed: number;
     detections: Detection[];
 }
+
+export type MediaType = "image" | "video";
+export type FileUploadStatus = "queued" | "uploading" | "done" | "failed";
+
+export interface UploadFile {
+    id: number;
+    file: File;
+    status: FileUploadStatus;
+    progress: number;
+}

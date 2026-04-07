@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { Detection, ProjectDetail } from "../../../types/project";
 import { getProjectDetail, } from "../../../lib/dummyData";
 import styles from "./ProjectPage.module.css";
+import UploadMediaModal from "../../../components/projects/UploadMediaModal";
 
 interface Props {
     projectId: string;
@@ -20,6 +21,7 @@ export default function ProjectPage({ projectId }: Props) {
     const [sort, setSort] = useState<Sort>("conf-asc");
     const [search, setSearch] = useState("");
     const [selected, setSelected] = useState<string[]>([]);
+    const [showUpload, setShowUpload] = useState(false);
 
     const [project, setProject] = useState<ProjectDetail | null>(() => {
         return getProjectDetail(projectId);
@@ -99,7 +101,7 @@ export default function ProjectPage({ projectId }: Props) {
                     </div>
                 </div>
                 <div className={styles.topbarRight}>
-                    <button className={styles.btnUpload} onClick={() => router.push(`/projects/${projectId}/upload`)}>
+                    <button className={styles.btnUpload} onClick={() => setShowUpload(true)}>
                         Upload Media
                     </button>
                 </div>
@@ -219,6 +221,12 @@ export default function ProjectPage({ projectId }: Props) {
                     ))
                 )}
             </div>
+            {showUpload && (
+                <UploadMediaModal
+                    projectId={projectId}
+                    onClose={() => setShowUpload(false)}
+                />
+            )}
         </div>
     );
 }
@@ -303,6 +311,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
                     <button className={styles.btnDetail}>Details →</button>
                 </div>
             </div>
+
         </div>
     );
 }
