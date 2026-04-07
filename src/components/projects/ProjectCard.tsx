@@ -1,7 +1,7 @@
 "use client";
 
 import { Pencil, Trash2, Layers, Clock } from 'lucide-react';
-import { Project } from '../../types/project';
+import { Project, ProjectType } from '../../types/project';
 
 interface ProjectCardProps {
     project: Project;
@@ -9,11 +9,9 @@ interface ProjectCardProps {
     onDeleteAction: (project: Project) => void;
 }
 
-const STATUS_STYLES: Record<Project['status'], { bg: string; text: string; label: string }> = {
-    active:    { bg: 'bg-[rgba(0,180,160,0.15)]',   text: 'text-[#00b4a0]', label: 'Active' },
-    completed: { bg: 'bg-[rgba(16,185,129,0.15)]',  text: 'text-[#10b981]', label: 'Completed' },
-    archived:  { bg: 'bg-[rgba(107,114,128,0.2)]',  text: 'text-[#9ca3af]', label: 'Archived' },
-    test:      { bg: 'bg-[rgba(139,92,246,0.15)]',  text: 'text-[#a78bfa]', label: 'Test' },
+const TYPE_STYLES: Record<ProjectType, { bg: string; text: string; label: string }> = {
+    active: { bg: 'bg-[rgba(0,180,160,0.15)]',  text: 'text-[#00b4a0]', label: 'Active' },
+    test:   { bg: 'bg-[rgba(139,92,246,0.15)]', text: 'text-[#a78bfa]', label: 'Test' },
 };
 
 function formatDate(iso: string): string {
@@ -25,7 +23,7 @@ function formatDate(iso: string): string {
 }
 
 export default function ProjectCard({ project, onEditAction, onDeleteAction }: ProjectCardProps) {
-    const status = STATUS_STYLES[project.status];
+    const type = TYPE_STYLES[project.type];
 
     return (
         <div className="group relative bg-[#0d1f2d] border border-[rgba(0,180,160,0.08)] rounded-2xl p-6 flex flex-col gap-4 transition-all duration-200 hover:border-[rgba(0,180,160,0.35)] hover:shadow-[0_4px_24px_rgba(0,180,160,0.1)]">
@@ -55,9 +53,11 @@ export default function ProjectCard({ project, onEditAction, onDeleteAction }: P
                     </button>
                 </div>
             </div>
-            <span className={`inline-flex items-center self-start px-2.5 py-0.5 rounded-full text-[0.72rem] font-semibold tracking-wide uppercase ${status.bg} ${status.text}`}>
-                {status.label}
+
+            <span className={`inline-flex items-center self-start px-2.5 py-0.5 rounded-full text-[0.72rem] font-semibold tracking-wide uppercase ${type.bg} ${type.text}`}>
+                {type.label}
             </span>
+
             <p className="text-[0.83rem] text-[#8dadc2] leading-relaxed line-clamp-2 flex-1">
                 {project.description || <span className="italic opacity-60">No description</span>}
             </p>

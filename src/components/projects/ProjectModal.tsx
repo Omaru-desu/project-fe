@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, TriangleAlert } from 'lucide-react';
-import { Project, CreateProjectInput, UpdateProjectInput } from '../../types/project';
+import { Project, ProjectType, CreateProjectInput, UpdateProjectInput } from '../../types/project';
 
 interface ProjectModalProps {
     mode: 'create' | 'edit';
@@ -11,33 +11,19 @@ interface ProjectModalProps {
     onSubmitAction: (data: CreateProjectInput | UpdateProjectInput) => Promise<void>;
 }
 
-type Status = 'active' | 'completed' | 'archived' | 'test';
-
 const TEST_RETENTION_DAYS = 90;
-
-// Returns the status options available given the current mode and original status.
-// Active <-> Test transitions are blocked because frames live in different buckets.
-function getStatusOptions(mode: 'create' | 'edit', originalStatus?: Status): Status[] {
-    if (mode === 'create') return ['active', 'test'];
-    if (originalStatus === 'active') return ['active', 'completed', 'archived'];
-    if (originalStatus === 'test')   return ['test', 'completed', 'archived'];
-    return ['completed', 'archived'];
-}
 
 export default function ProjectModal({ mode, project, onCloseAction, onSubmitAction }: ProjectModalProps) {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
-    const [status, setStatus] = useState<Status>('active');
+    const [type, setType] = useState<ProjectType>('active');
     const [nameError, setNameError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-
-    const originalStatus = project?.status as Status | undefined;
 
     useEffect(() => {
         if (mode === 'edit' && project) {
             setName(project.name);
             setDescription(project.description);
-            setStatus(project.status as Status);
         }
     }, [mode, project]);
 
@@ -59,25 +45,19 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
         if (!validate()) return;
         setIsSubmitting(true);
         try {
-            await onSubmitAction({ name: name.trim(), description: description.trim(), status });
+            if (mode === 'create') {
+                await onSubmitAction({ name: name.trim(), description: description.trim(), type });
+            } else {
+                await onSubmitAction({ name: name.trim(), description: description.trim() });
+            }
             onCloseAction();
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const statusOptions = getStatusOptions(mode, originalStatus);
-    const showTestWarning = status === 'test';
-
     const inputClass =
         'w-full bg-[#0a1628] border border-[rgba(0,180,160,0.2)] text-[#e8f2f8] placeholder-[#4a6880] rounded-xl px-4 py-3 text-[0.88rem] outline-none transition-all duration-150 focus:border-[#00b4a0] focus:shadow-[0_0_0_3px_rgba(0,180,160,0.12)]';
-
-    const STATUS_LABELS: Record<Status, string> = {
-        active:    'Active',
-        test:      'Test',
-        completed: 'Completed',
-        archived:  'Archived',
-    };
 
     return (
         <div
@@ -85,7 +65,7 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
             onClick={(e) => { if (e.target === e.currentTarget) onCloseAction(); }}
         >
             <div className="bg-[#0d1f2d] border border-[rgba(0,180,160,0.15)] rounded-2xl p-8 w-full max-w-lg shadow-[0_8px_48px_rgba(0,0,0,0.5)]">
-                {/* Modal header */}
+                {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <h2
                         className="text-[1.2rem] font-black text-[#e8f2f8]"
@@ -134,40 +114,36 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
                         />
                     </div>
 
-                    <div>
-                        <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
-                            {mode === 'create' ? 'Project Type' : 'Status'}
-                        </label>
-                        <select
-                            value={status}
-                            onChange={(e) => setStatus(e.target.value as Status)}
-                            className={`${inputClass} cursor-pointer`}
-                        >
-                            {statusOptions.map(s => (
-                                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                            ))}
-                        </select>
+                    {/* Project Type — create only */}
+                    {mode === 'create' && (
+                        <div>
+                            <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
+                                Project Type
+                            </label>
+                            <select
+                                value={type}
+                                onChange={(e) => setType(e.target.value as ProjectType)}
+                                className={`${inputClass} cursor-pointer`}
+                            >
+                                <option value="active">Active</option>
+                                <option value="test">Test</option>
+                            </select>
 
-                        {mode === 'edit' && (originalStatus === 'active' || originalStatus === 'test') && (
-                            <p className="mt-2 text-[0.75rem] text-[#4a6880]">
-                                Project type cannot be changed, frames are stored in a dedicated{' '}
-                                <span className="text-[#8dadc2]">{originalStatus}</span> bucket.
-                            </p>
-                        )}
-                    </div>
-
-                    {showTestWarning && (
-                        <div className="flex gap-3 px-4 py-3 rounded-xl bg-[rgba(234,179,8,0.08)] border border-[rgba(234,179,8,0.25)]">
-                            <TriangleAlert size={16} className="text-[#eab308] shrink-0 mt-0.5" />
-                            <p className="text-[0.8rem] text-[#fde68a] leading-relaxed">
-                                <span className="font-semibold">Test projects are temporary.</span> All frames and
-                                associated data will be automatically deleted after{' '}
-                                <span className="font-semibold">{TEST_RETENTION_DAYS} days</span>. Use an Active
-                                project to retain data permanently.
-                            </p>
+                            {type === 'test' && (
+                                <div className="flex gap-3 mt-3 px-4 py-3 rounded-xl bg-[rgba(234,179,8,0.08)] border border-[rgba(234,179,8,0.25)]">
+                                    <TriangleAlert size={16} className="text-[#eab308] shrink-0 mt-0.5" />
+                                    <p className="text-[0.8rem] text-[#fde68a] leading-relaxed">
+                                        <span className="font-semibold">Test projects are temporary.</span> All frames and
+                                        associated data will be automatically deleted after{' '}
+                                        <span className="font-semibold">{TEST_RETENTION_DAYS} days</span>. Use an Active
+                                        project to retain data permanently.
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     )}
 
+                    {/* Actions */}
                     <div className="flex items-center gap-3 pt-2">
                         <button
                             type="button"
