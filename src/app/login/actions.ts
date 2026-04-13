@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/src/lib/supabase/client";
+import { createServerSupabaseClient } from "@/src/lib/supabase/server";
 
 // const sampleUser = {
 //     id: "1",

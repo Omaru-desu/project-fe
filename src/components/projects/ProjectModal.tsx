@@ -65,7 +65,6 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
             onClick={(e) => { if (e.target === e.currentTarget) onCloseAction(); }}
         >
             <div className="bg-[#0d1f2d] border border-[rgba(0,180,160,0.15)] rounded-2xl p-8 w-full max-w-lg shadow-[0_8px_48px_rgba(0,0,0,0.5)]">
-                {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <h2
                         className="text-[1.2rem] font-black text-[#e8f2f8]"
@@ -83,7 +82,6 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
                 </div>
 
                 <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
-                    {/* Name */}
                     <div>
                         <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
                             Name <span className="text-[#e8613a]">*</span>
@@ -100,7 +98,6 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
                         )}
                     </div>
 
-                    {/* Description */}
                     <div>
                         <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
                             Description
@@ -114,7 +111,6 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
                         />
                     </div>
 
-                    {/* Project Type — create only */}
                     {mode === 'create' && (
                         <div>
                             <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
@@ -143,7 +139,6 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
                         </div>
                     )}
 
-                    {/* Actions */}
                     <div className="flex items-center gap-3 pt-2">
                         <button
                             type="button"
