@@ -1,8 +1,10 @@
+export type ProjectType = 'active' | 'test';
+
 export interface Project {
     id: string;
     name: string;
     description: string;
-    status: 'active' | 'completed' | 'archived' | 'test';
+    type: ProjectType;
     frame_count: number;
     created_at: string;
     owner: string;
@@ -11,7 +13,7 @@ export interface Project {
 export interface CreateProjectInput {
     name: string;
     description?: string;
-    status: 'active' | 'test';
+    type: ProjectType;
 }
 
 export interface UpdateProjectInput {
@@ -48,3 +50,4 @@ export interface UploadFile {
     status: FileUploadStatus;
     progress: number;
 }
+

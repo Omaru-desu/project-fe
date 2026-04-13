@@ -109,7 +109,7 @@ export function LoginForm() {
                             {formState?.errors?.password && (
                                 <p className={styles.errorText}>{formState.errors.password}</p>
                             )}
-                            <LoginSubmitButton />
+                            <LoginSubmitButton label="Sign In →" />
 
                         </form>
                     )}
@@ -132,7 +132,7 @@ export function LoginForm() {
                                 <p className={styles.errorText}>{registerState.errors.password}</p>
                             )}
 
-                            <LoginSubmitButton />
+                            <LoginSubmitButton label="Create Account →" />
                         </form>
                     )}
                 </div>
@@ -152,11 +152,11 @@ function FormField({ label, id, name, type, placeholder }: {
     );
 }
 
-function LoginSubmitButton() {
+function LoginSubmitButton( { label }: { label: string }) {
     const { pending } = useFormStatus();
     return (
         <button type="submit" disabled={pending} className={styles.submitBtn}>
-            {pending ? "Signing in…" : "Sign In →"}
+            {pending ? "Loading…" : label}
         </button>
     );
 }
