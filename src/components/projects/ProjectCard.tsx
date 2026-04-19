@@ -2,6 +2,7 @@
 
 import { Pencil, Trash2, Layers, Clock } from 'lucide-react';
 import { Project, ProjectType } from '../../types/project';
+import { useRouter } from 'next/navigation';
 
 interface ProjectCardProps {
     project: Project;
@@ -10,8 +11,8 @@ interface ProjectCardProps {
 }
 
 const TYPE_STYLES: Record<ProjectType, { bg: string; text: string; label: string }> = {
-    active: { bg: 'bg-[rgba(0,180,160,0.15)]',  text: 'text-[#00b4a0]', label: 'Active' },
-    test:   { bg: 'bg-[rgba(139,92,246,0.15)]', text: 'text-[#a78bfa]', label: 'Test' },
+    active: { bg: 'bg-[rgba(0,180,160,0.15)]', text: 'text-[#00b4a0]', label: 'Active' },
+    test: { bg: 'bg-[rgba(139,92,246,0.15)]', text: 'text-[#a78bfa]', label: 'Test' },
 };
 
 function formatDate(iso: string): string {
@@ -24,9 +25,11 @@ function formatDate(iso: string): string {
 
 export default function ProjectCard({ project, onEditAction, onDeleteAction }: ProjectCardProps) {
     const type = TYPE_STYLES[project.type];
+    const router = useRouter();
 
     return (
-        <div className="group relative bg-[#0d1f2d] border border-[rgba(0,180,160,0.08)] rounded-2xl p-6 flex flex-col gap-4 transition-all duration-200 hover:border-[rgba(0,180,160,0.35)] hover:shadow-[0_4px_24px_rgba(0,180,160,0.1)]">
+
+        <div onClick={() => router.push(`/projects/${project.id}`)} className="group relative bg-[#0d1f2d] border border-[rgba(0,180,160,0.08)] rounded-2xl p-6 flex flex-col gap-4 transition-all duration-200 hover:border-[rgba(0,180,160,0.35)] hover:shadow-[0_4px_24px_rgba(0,180,160,0.1)]">
             <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                     <h3
@@ -38,14 +41,14 @@ export default function ProjectCard({ project, onEditAction, onDeleteAction }: P
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 shrink-0">
                     <button
-                        onClick={() => onEditAction(project)}
+                        onClick={(e) => { e.stopPropagation(); onEditAction(project); }}
                         aria-label="Edit project"
                         className="p-1.5 rounded-lg text-[#8dadc2] hover:text-[#00b4a0] hover:bg-[rgba(0,180,160,0.1)] transition-colors duration-150"
                     >
                         <Pencil size={15} />
                     </button>
                     <button
-                        onClick={() => onDeleteAction(project)}
+                        onClick={(e) => { e.stopPropagation(); onDeleteAction(project); }}
                         aria-label="Delete project"
                         className="p-1.5 rounded-lg text-[#8dadc2] hover:text-[#e8613a] hover:bg-[rgba(232,97,58,0.1)] transition-colors duration-150"
                     >

@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import { MediaType, UploadFile } from "../../types/project";
 import styles from "./UploadMediaModal.module.css";
+import * as api from "./../../lib/api";
 
 interface Props {
     projectId: string;
@@ -45,29 +46,28 @@ export default function UploadMediaModal({ projectId, onClose }: Props) {
         addFiles(e.dataTransfer.files);
     }
 
+
     async function startUpload() {
-        if (uploading || !files.length) return;
-        setUploading(true);
+        if (!files.length) return;
+        try {
+            setUploading(true);
+            setFiles(prev => prev.map(f => ({ ...f, status: "uploading" as const, progress: 50 })));
 
-        for (const f of files.filter(f => f.status === "queued")) {
-            setFiles(prev => prev.map(x =>
-                x.id === f.id ? { ...x, status: "uploading" as const } : x
-            ));
+            const formData = new FormData();
+            files.forEach((file) => {
+                formData.append("files", file.file);
+            });
 
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            const success = Math.random() > 0.08;
-            if (success) {
-                setFiles(prev => prev.map(x =>
-                    x.id === f.id ? { ...x, progress: 100, status: "done" as const } : x
-                ));
-            } else {
-                setFiles(prev => prev.map(x =>
-                    x.id === f.id ? { ...x, progress: 100, status: "failed" as const } : x
-                ));
-            }
+            const response = await api.uploadProject(projectId, formData);
+
+            setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));
+
+        } catch (err) {
+            console.error(err);
+            setFiles(prev => prev.map(f => ({ ...f, status: "failed" as const })));
+        } finally {
+            setUploading(false);
         }
-
-        setUploading(false);
     }
 
     // The number of files that have been processed (successfully or unsuccessfully). Used for the overall progress bar and the "X of Y files uploaded" text
