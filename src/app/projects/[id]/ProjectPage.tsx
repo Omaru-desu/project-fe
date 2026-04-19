@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Detection, ProjectDetail } from "../../../types/project";
-import { getProjectDetail, } from "../../../lib/dummyData";
+import * as api from "../../../lib/api";
 import styles from "./ProjectPage.module.css";
 import UploadMediaModal from "../../../components/projects/UploadMediaModal";
 
@@ -23,17 +23,16 @@ export default function ProjectPage({ projectId }: Props) {
     const [selected, setSelected] = useState<string[]>([]);
     const [showUpload, setShowUpload] = useState(false);
 
-    const [project, setProject] = useState<ProjectDetail | null>(() => {
-        return getProjectDetail(projectId);
-    });
-    const [detections, setDetections] = useState<Detection[]>(() => {
-        const p = getProjectDetail(projectId);
-        return p ? p.detections : [];
-    });
+    const [project, setProject] = useState<ProjectDetail | null>(null);
+    const [detections, setDetections] = useState<Detection[]>([]);
 
     useEffect(() => {
-        if (!project) router.push("/projects");
-    }, [project, router]);
+        api.getProjects().then(projects => {
+            const found = projects.find(p => p.id === projectId);
+            if (!found) router.push("/projects");
+            else setProject(found as any);
+        }).catch(() => router.push("/projects"));
+    }, [projectId, router]);
 
     if (!project) return (
         <div className={styles.loading}>

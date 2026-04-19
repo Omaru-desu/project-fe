@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import { MediaType, UploadFile } from "../../types/project";
 import styles from "./UploadMediaModal.module.css";
+import * as api from "./../../lib/api";
 
 interface Props {
     projectId: string;
@@ -45,29 +46,28 @@ export default function UploadMediaModal({ projectId, onClose }: Props) {
         addFiles(e.dataTransfer.files);
     }
 
+
     async function startUpload() {
-        if (uploading || !files.length) return;
-        setUploading(true);
+        if (!files.length) return;
+        try {
+            setUploading(true);
+            setFiles(prev => prev.map(f => ({ ...f, status: "uploading" as const, progress: 50 })));
 
-        for (const f of files.filter(f => f.status === "queued")) {
-            setFiles(prev => prev.map(x =>
-                x.id === f.id ? { ...x, status: "uploading" as const } : x
-            ));
+            const formData = new FormData();
+            files.forEach((file) => {
+                formData.append("files", file.file);
+            });
 
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            const success = Math.random() > 0.08;
-            if (success) {
-                setFiles(prev => prev.map(x =>
-                    x.id === f.id ? { ...x, progress: 100, status: "done" as const } : x
-                ));
-            } else {
-                setFiles(prev => prev.map(x =>
-                    x.id === f.id ? { ...x, progress: 100, status: "failed" as const } : x
-                ));
-            }
+            const response = await api.uploadProject(projectId, formData);
+
+            setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));
+
+        } catch (err) {
+            console.error(err);
+            setFiles(prev => prev.map(f => ({ ...f, status: "failed" as const })));
+        } finally {
+            setUploading(false);
         }
-
-        setUploading(false);
     }
 
     // The number of files that have been processed (successfully or unsuccessfully). Used for the overall progress bar and the "X of Y files uploaded" text
@@ -200,13 +200,8 @@ export default function UploadMediaModal({ projectId, onClose }: Props) {
                                                 <div className={styles.fileMeta}>{formatSize(f.file.size)} · {ext}</div>
                                                 {f.status === "failed" && <div className={styles.fileError}>Failed to upload — check file format or size</div>}
                                             </div>
-                                            {(f.status === "uploading" || f.status === "done" || f.status === "failed") && (
-                                                <div className={styles.fileProgressWrap}>
-                                                    <div className={styles.fileProgBar}>
-                                                        <div className={`${styles.fileProgFill} ${styles[`fileProgFill_${f.status}`]}`} style={{ width: `${f.progress}%` }} />
-                                                    </div>
-                                                    <div className={`${styles.fileProgPct} ${styles[`fileProgPct_${f.status}`]}`}>{Math.round(f.progress)}%</div>
-                                                </div>
+                                            {f.status === "uploading" && (
+                                                <div className={styles.spinner} />
                                             )}
                                             <span className={`${styles.fileStatusBadge} ${styles[`fileStatusBadge_${f.status}`]}`}>{statusLabel[f.status]}</span>
                                             {f.status !== "uploading" && (
@@ -220,19 +215,6 @@ export default function UploadMediaModal({ projectId, onClose }: Props) {
                             </div>
                         )}
                     </div>
-
-                    {/* PROGRESS */}
-                    {files.length > 0 && (
-                        <div className={styles.progressBody}>
-                            <div className={styles.progressBarLabels}>
-                                <span className={styles.progressBarLabel}>{done} of {files.length} file{files.length > 1 ? "s" : ""} uploaded</span>
-                                <span className={styles.progressBarFraction}>{done}/{files.length}</span>
-                            </div>
-                            <div className={styles.progressTrack}>
-                                <div className={styles.progressTrackFill} style={{ width: `${(done / files.length) * 100}%` }} />
-                            </div>
-                        </div>
-                    )}
 
                     {/* FOOTER */}
                     <div className={styles.footerActions}>

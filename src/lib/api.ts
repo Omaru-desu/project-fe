@@ -3,12 +3,14 @@ import { createBrowserSupabaseClient } from './supabase/client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-async function authHeaders(): Promise<HeadersInit> {
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function authHeaders(isFormData = false): Promise<HeadersInit> {
     const supabase = createBrowserSupabaseClient();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) throw new Error('Not authenticated');
     return {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         'Authorization': `Bearer ${session.access_token}`,
     };
 }
@@ -59,3 +61,13 @@ export async function deleteProject(id: string): Promise<void> {
     });
     return handleResponse<void>(res);
 }
+
+export async function uploadProject(id: string, data: FormData): Promise<void> {
+    const res = await fetch(`${API_URL}/api/projects/${id}/upload`, {
+        method: 'POST',
+        headers: await authHeaders(true),
+        body: data,
+    });
+    return handleResponse<void>(res);
+}
+

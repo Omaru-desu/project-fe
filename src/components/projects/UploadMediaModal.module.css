@@ -653,3 +653,19 @@
     box-shadow: none;
     transform: none;
 }
+
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(0, 144, 204, 0.2);
+    border-top-color: var(--ocean-lt);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
