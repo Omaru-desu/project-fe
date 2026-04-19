@@ -32,7 +32,7 @@ export default function ProjectPage({ projectId }: Props) {
             if (!found) router.push("/projects");
             else setProject(found as any);
         }).catch(() => router.push("/projects"));
-    }, [projectId]);
+    }, [projectId, router]);
 
     if (!project) return (
         <div className={styles.loading}>
