@@ -381,7 +381,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
 
         frameCache.set(d.frame_id, d.frame_url);
         drawOnCanvas(d.frame_url);
-    }, [d.frame_id, d.bbox, d.display_label]);
+    }, [d.frame_id, d.bbox, d.display_label, d.frame_url]);
 
     const cc = d.score >= 0.75 ? "High" : d.score >= 0.5 ? "Mid" : "Low";
     let fillClass = styles.confFillLow;
