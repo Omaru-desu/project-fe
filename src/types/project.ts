@@ -42,7 +42,7 @@ export interface ProjectDetail {
     detections: Detection[];
 }
 
-export type MediaType = "image" | "video";
+export type MediaType = "image" | "video" | "rosbag";
 export type FileUploadStatus = "queued" | "uploading" | "done" | "failed";
 
 export interface UploadFile {
