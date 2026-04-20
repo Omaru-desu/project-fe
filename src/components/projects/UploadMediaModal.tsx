@@ -9,9 +9,10 @@ import * as api from "./../../lib/api";
 interface Props {
     projectId: string;
     onClose: () => void;
+    onUploadComplete: (uploadId: string, totalFrames: number) => void;
 }
 
-export default function UploadMediaModal({ projectId, onClose }: Props) {
+export default function UploadMediaModal({ projectId, onClose, onUploadComplete }: Props) {
     const [mediaType, setMediaType] = useState<MediaType>("image");
     const [files, setFiles] = useState<UploadFile[]>([]);
     const [uploading, setUploading] = useState(false);
@@ -61,6 +62,9 @@ export default function UploadMediaModal({ projectId, onClose }: Props) {
             const response = await api.uploadProject(projectId, formData);
 
             setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));
+
+            api.segmentUpload(projectId, response.upload_id);
+            onUploadComplete(response.upload_id, response.frame_count);
 
         } catch (err) {
             console.error(err);
