@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 import { MediaType, UploadFile } from "../../types/project";
 import styles from "./UploadMediaModal.module.css";
@@ -19,17 +19,60 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
     const [dragOver, setDragOver] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const accept = mediaType === "image" ? "image/*" : "video/*";
-    const pills = mediaType === "image" ? ["JPEG", "PNG", "TIFF", "RAW"] : ["MP4", "MOV", "AVI", "MKV"];
-    const dropSub = mediaType === "image"
-        ? "Drag and drop multiple files at once · Up to 500MB per batch"
-        : "Drag and drop video files · Frames extracted automatically";
+    useEffect(() => {
+        setFiles([]);
+    }, [mediaType]);
+
+    const accept =
+        mediaType === "image"
+            ? "image/*"
+            : mediaType === "video"
+                ? "video/*"
+                : ".bag";
+
+    const pills =
+        mediaType === "image"
+            ? ["JPEG", "PNG", "TIFF", "RAW"]
+            : mediaType === "video"
+                ? ["MP4", "MOV", "AVI", "MKV"]
+                : ["ROSBAG", ".BAG"];
+
+    const dropSub =
+        mediaType === "image"
+            ? "Drag and drop multiple image files at once · Up to 500MB per batch"
+            : mediaType === "video"
+                ? "Drag and drop one video file · Frames extracted automatically"
+                : "Drag and drop one rosbag file · Frames extracted automatically";
 
     function addFiles(rawFiles: FileList) {
-        const incoming: UploadFile[] = [...rawFiles]
+        let filteredFiles = [...rawFiles];
+
+        if (mediaType === "image") {
+            filteredFiles = filteredFiles.filter(f => f.type.startsWith("image"));
+        } else if (mediaType === "video") {
+            filteredFiles = filteredFiles.filter(
+                f => f.type.startsWith("video")
+            ).slice(0, 1);
+        } else if (mediaType === "rosbag") {
+            filteredFiles = filteredFiles.filter(
+                f => f.name.toLowerCase().endsWith(".bag")
+            ).slice(0, 1);
+        }
+
+        const incoming: UploadFile[] = filteredFiles
             .filter(f => !files.find(x => x.file.name === f.name && x.file.size === f.size))
-            .map(f => ({ id: Date.now() + Math.random(), file: f, status: "queued" as const, progress: 0 }));
-        setFiles(prev => [...prev, ...incoming]);
+            .map(f => ({
+                id: Date.now() + Math.random(),
+                file: f,
+                status: "queued" as const,
+                progress: 0
+            }));
+
+        if (mediaType === "video" || mediaType === "rosbag") {
+            setFiles(incoming.slice(0, 1));
+        } else {
+            setFiles(prev => [...prev, ...incoming]);
+        }
     }
 
     function removeFile(id: number) {
@@ -63,7 +106,6 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
 
             setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));
 
-            await new Promise(resolve => setTimeout(resolve, 2000));
             api.segmentUpload(projectId, response.upload_id);
             onUploadComplete(response.upload_id, response.frame_count);
 
@@ -140,6 +182,22 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                                     <div className={`${styles.radioCheckInner} ${mediaType === "video" ? styles.radioCheckInnerActive : ""}`} />
                                 </div>
                             </div>
+
+                            <div className={`${styles.radioCard} ${mediaType === "rosbag" ? styles.radioCardActive : ""}`} onClick={() => setMediaType("rosbag")}>
+                                <div className={styles.radioIcon}>
+                                    <svg viewBox="0 0 24 24" fill="none">
+                                        <rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--teal)" strokeWidth="1.8" />
+                                        <path d="M8 7h8M8 11h8M8 15h5" stroke="var(--teal)" strokeWidth="1.8" strokeLinecap="round" />
+                                    </svg>
+                                </div>
+                                <div className={styles.radioText}>
+                                    <div className={styles.radioLabel}>Upload Rosbag</div>
+                                    <div className={styles.radioSub}>ROS bag file (.bag)</div>
+                                </div>
+                                <div className={styles.radioCheck}>
+                                    <div className={`${styles.radioCheckInner} ${mediaType === "rosbag" ? styles.radioCheckInnerActive : ""}`} />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -185,6 +243,7 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                                 {files.map(f => {
                                     const ext = f.file.name.split(".").pop()?.toUpperCase() ?? "";
                                     const isVid = f.file.type.startsWith("video") || ["MP4", "MOV", "AVI", "MKV", "WEBM"].includes(ext);
+                                    const isRosbag = ext === "BAG";
                                     const statusLabel: Record<string, string> = { queued: "Queued", uploading: "Uploading", done: "Done", failed: "Failed" };
 
                                     let itemClass = styles.fileItem;
@@ -193,13 +252,30 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                                     if (f.status === "failed") itemClass += " " + styles.fileItem_failed;
                                     return (
                                         <div key={f.id} className={itemClass}>
-                                            <div className={`${styles.fileIconBox} ${isVid ? styles.fileIconVid : styles.fileIconImg}`}>
-                                                {isVid ? (
-                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--coral)" strokeWidth="1.2" /><path d="M7 6l4 2-4 2V6z" fill="var(--coral)" /></svg>
+                                            <div
+                                                className={`${styles.fileIconBox} ${
+                                                    isRosbag ? styles.fileIconRosbag : isVid ? styles.fileIconVid : styles.fileIconImg
+                                                }`}
+                                            >
+                                                {isRosbag ? (
+                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                        <rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--teal)" strokeWidth="1.2" />
+                                                        <path d="M5 5h6M5 8h6M5 11h4" stroke="var(--teal)" strokeWidth="1.2" strokeLinecap="round" />
+                                                    </svg>
+                                                ) : isVid ? (
+                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                        <rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--coral)" strokeWidth="1.2" />
+                                                        <path d="M7 6l4 2-4 2V6z" fill="var(--coral)" />
+                                                    </svg>
                                                 ) : (
-                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--ocean-lt)" strokeWidth="1.2" /><circle cx="5.5" cy="5.5" r="1" fill="var(--ocean-lt)" /><path d="M2 11l4-4 3 3 2-2 3 3" stroke="var(--ocean-lt)" strokeWidth="1.2" strokeLinecap="round" /></svg>
+                                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                        <rect x="2" y="2" width="12" height="12" rx="2" stroke="var(--ocean-lt)" strokeWidth="1.2" />
+                                                        <circle cx="5.5" cy="5.5" r="1" fill="var(--ocean-lt)" />
+                                                        <path d="M2 11l4-4 3 3 2-2 3 3" stroke="var(--ocean-lt)" strokeWidth="1.2" strokeLinecap="round" />
+                                                    </svg>
                                                 )}
                                             </div>
+
                                             <div className={styles.fileInfo}>
                                                 <div className={styles.fileName}>{f.file.name}</div>
                                                 <div className={styles.fileMeta}>{formatSize(f.file.size)} · {ext}</div>
