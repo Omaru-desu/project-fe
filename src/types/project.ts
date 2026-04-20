@@ -32,6 +32,7 @@ export interface Detection {
     display_label: string;
     score: number;
     source_filename: string;
+    frame_url: string;
 }
 
 export interface ProjectDetail {

@@ -663,3 +663,23 @@
         transform: rotate(360deg);
     }
 }
+
+.cardImgLoading {
+    position: absolute;
+    inset: 0;
+    background: #0f1f33;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+}
+
+.cardImgLoading::after {
+    content: "";
+    width: 24px;
+    height: 24px;
+    border: 2px solid rgba(0, 144, 204, 0.2);
+    border-top-color: var(--ocean-lt);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}

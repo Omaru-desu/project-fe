@@ -51,6 +51,7 @@ export default function ProjectPage({ projectId }: Props) {
                     ...det,
                     frame_id: frame.id,
                     source_filename: frame.source_filename,
+                    frame_url: frame.frame_url,
                     display_label: det.display_label ?? "",
                     score: det.score ?? 0,
                     status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
@@ -99,6 +100,7 @@ export default function ProjectPage({ projectId }: Props) {
                         ...det,
                         frame_id: frame.id,
                         source_filename: frame.source_filename,
+                        frame_url: frame.frame_url,
                         display_label: det.display_label ?? "",
                         score: det.score ?? 0,
                         status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
@@ -330,6 +332,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
     onMarkReviewed: () => void;
 }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -349,8 +352,9 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
                 canvas.width = 300;
                 canvas.height = 170;
                 ctx.drawImage(img, 0, 0, 300, 170);
+                setLoading(false);
 
-                ctx.strokeStyle = "#000000";
+                ctx.strokeStyle = "#d91414";
                 ctx.lineWidth = 2;
                 ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY);
 
@@ -362,7 +366,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
                 ctx.font = `bold ${fontSize}px system-ui`;
                 ctx.textBaseline = "bottom";
                 const tw = ctx.measureText(lbl).width;
-                ctx.fillStyle = "#000000";
+                ctx.fillStyle = "#d91414";
                 ctx.fillRect(x1 * scaleX, Math.max(0, y1 * scaleY - fontSize - 4), tw + 6, fontSize + 4);
                 ctx.fillStyle = "#ffffff";
                 ctx.fillText(lbl, x1 * scaleX + 3, y1 * scaleY);
@@ -372,13 +376,11 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
 
         if (frameCache.has(d.frame_id)) {
             drawOnCanvas(frameCache.get(d.frame_id)!);
-        } else {
-            api.getFramePreview(d.frame_id).then(blob => {
-                const url = URL.createObjectURL(blob);
-                frameCache.set(d.frame_id, url);
-                drawOnCanvas(url);
-            });
+            return;
         }
+
+        frameCache.set(d.frame_id, d.frame_url);
+        drawOnCanvas(d.frame_url);
     }, [d.frame_id, d.bbox, d.display_label]);
 
     const cc = d.score >= 0.75 ? "High" : d.score >= 0.5 ? "Mid" : "Low";
@@ -404,6 +406,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
             </div>
 
             <div className={styles.cardImg}>
+                {loading && <div className={styles.cardImgLoading} />}
                 <canvas ref={canvasRef} width={300} height={170} className={styles.cardCanvas} />
             </div>
 
