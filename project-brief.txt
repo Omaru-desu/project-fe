@@ -1,0 +1,35 @@
+17: AI Rapid Sorting of Underwater Ecological Imagery
+Subject Matter Expert: Joshua Riddell from FFT, josh@fft.ai
+Key Topics / Themes: Artificial Intelligence, Computer Vision, Image Processing, Object Detection,
+Semantic Search
+Problem Space
+Marine ecological monitoring relies heavily on large-scale underwater image collection to assess
+biodiversity, species distribution, and ecosystem health. FFT has developed a technology for underwater
+ecological assessment - towed imaging device that “flies” through the water behind a boat, capturing up
+to 50 km of transect imagery per day for ecological assessment.
+While data collection is now highly efficient, the bottleneck lies in post-processing. Thousands of
+underwater frames must be manually reviewed, labelled, and categorised to identify marine species and
+ecological features. This process is time-consuming, labour-intensive, and limits the speed at which
+ecological insights can be generated.
+Additionally, underwater imagery presents significant challenges for computer vision: low visibility,
+colour distortion, motion blur, occlusion, and high object variability. Although object detection models
+exist, their performance often depends on high-quality labels and domain-specific adaptation. There is
+an opportunity to significantly accelerate ecological analysis by developing intelligent tools that assist,
+rather than replace, human experts.
+Project Brief
+This project explores how artificial intelligence and human-in-the-loop interface design can accelerate
+the sorting and labelling of underwater ecological imagery.
+Students will design and prototype a digital system that improve annotation efficiency and enhance
+object detection model performance, with the focus not only on model accuracy, but also on workflow
+optimisation - creating a tool that meaningfully reduce manual labelling time while improving detection
+quality in a challenging underwater domain.
+Enhancements such as conversational querying, active learning workflows, or automated dataset
+curation may be explored as extensions.
+Project Requirements
+• Advanced vision models (e.g., DINOv3, SAM, or similar foundation models) to support generalised
+object detection, segmentation, and semantic search across underwater datasets.
+• Include intelligent grouping or tracking mechanisms to identify recurring objects across adjacent
+frames, and enabling intuitive dataset exploration.
+• Enable semantic search or filtering of images based on object characteristics or detected features.
+• Provide an intuitive user interface that allows researchers to review, validate, and refine model
+outputs.
