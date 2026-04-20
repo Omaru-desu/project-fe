@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Detection } from "../../../types/project";
@@ -42,7 +42,7 @@ export default function ProjectPage({ projectId }: Props) {
         }).catch(() => router.push("/projects"));
     }, [projectId, router]);
 
-    const fetchDetections = useCallback(async () => {
+    const fetchDetections = async () => {
         const data = await api.getProjectFrames(projectId);
         const allDetections: Detection[] = [];
         for (const frame of data.frames) {
@@ -58,9 +58,9 @@ export default function ProjectPage({ projectId }: Props) {
             }
         }
         setDetections(allDetections);
-    }, [projectId]);
+    };
 
-    const startPolling = useCallback((uploadId: string, totalFrames: number) => {
+    function startPolling(uploadId: string, totalFrames: number) {
         setProcessing({ uploadId, totalFrames, framesProcessed: 0, status: "processing" });
 
         pollingRef.current = setInterval(async () => {
@@ -86,14 +86,33 @@ export default function ProjectPage({ projectId }: Props) {
                 setProcessing(null);
             }
         }, 3000);
-    }, [fetchDetections]);
+    }
 
     useEffect(() => {
-        fetchDetections();
+        let cancelled = false;
+        api.getProjectFrames(projectId).then(data => {
+            if (cancelled) return;
+            const allDetections: Detection[] = [];
+            for (const frame of data.frames) {
+                for (const det of frame.detections) {
+                    allDetections.push({
+                        ...det,
+                        frame_id: frame.id,
+                        source_filename: frame.source_filename,
+                        display_label: det.display_label ?? "",
+                        score: det.score ?? 0,
+                        status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
+                    });
+                }
+            }
+            setDetections(allDetections);
+        }).catch(console.error);
+
         return () => {
+            cancelled = true;
             if (pollingRef.current) clearInterval(pollingRef.current);
         };
-    }, [fetchDetections]);
+    }, [projectId]);
 
     function handleUploadComplete(uploadId: string, totalFrames: number) {
         setShowUpload(false);
