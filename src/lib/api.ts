@@ -121,3 +121,12 @@ export async function getFramePreview(frameId: string): Promise<Blob> {
     if (!res.ok) throw new Error(`Failed to fetch preview: ${res.status}`);
     return res.blob();
 }
+
+export async function reviewDetectionLabel(id: string, newLabel: string): Promise<void> {
+    const res = await fetch(`${API_URL}/api/detections/${id}/label`, {
+        method: 'PATCH',
+        headers: await authHeaders(),
+        body: JSON.stringify({ display_label: newLabel }),
+    });
+    return handleResponse<void>(res);
+}
