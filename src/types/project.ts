@@ -24,14 +24,14 @@ export interface UpdateProjectInput {
 
 export interface Detection {
     id: string;
-    label: string;
-    taxon: string;
-    confidence: number;
+    frame_id: string;
+    bbox: number[];
+    label_id: string;
     status: "reviewed" | "needs_review";
-    frameId: string;
-    timestamp: string;
-    color: "teal" | "coral" | "ocean";
-    bbox: { x: number; y: number; w: number; h: number };
+    taxon: string | null;
+    display_label: string;
+    score: number;
+    source_filename: string;
 }
 
 export interface ProjectDetail {
