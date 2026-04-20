@@ -7,6 +7,7 @@ import { Detection } from "../../../types/project";
 import * as api from "../../../lib/api";
 import styles from "./ProjectPage.module.css";
 import UploadMediaModal from "../../../components/projects/UploadMediaModal";
+import ReviewModal from "../../../components/projects/ReviewModal";
 const frameCache = new Map<string, string>();
 interface Props {
     projectId: string;
@@ -33,6 +34,7 @@ export default function ProjectPage({ projectId }: Props) {
     const [detections, setDetections] = useState<Detection[]>([]);
     const [processing, setProcessing] = useState<ProcessingStatus | null>(null);
     const pollingRef = useRef<NodeJS.Timeout | null>(null);
+    const [reviewDetection, setReviewDetection] = useState<Detection | null>(null);
 
     useEffect(() => {
         api.getProjects().then(projects => {
@@ -159,9 +161,23 @@ export default function ProjectPage({ projectId }: Props) {
         setDetections(prev => prev.map(d => d.id === id ? { ...d, status: "reviewed" as const } : d));
     }
 
-    function markSelectedReviewed() {
-        setDetections(prev => prev.map(d => selected.includes(d.id) ? { ...d, status: "reviewed" as const } : d));
+    function handleModalReviewed(id: string, newLabel: string) {
+        setDetections(prev => prev.map(d =>
+            d.id === id ? { ...d, status: "reviewed" as const, display_label: newLabel } : d
+        ));
+        setReviewDetection(null);
+    }
+
+    async function markSelectedReviewed() {
+        const ids = [...selected];
+        setDetections(prev => prev.map(d => ids.includes(d.id) ? { ...d, status: "reviewed" as const } : d));
         setSelected([]);
+        await Promise.allSettled(
+            ids.map(id => {
+                const det = detections.find(d => d.id === id);
+                return api.reviewDetectionLabel(id, det?.display_label ?? "");
+            })
+        );
     }
 
     return (
@@ -307,7 +323,7 @@ export default function ProjectPage({ projectId }: Props) {
                             detection={d}
                             selected={selected.includes(d.id)}
                             onToggleSelect={() => toggleSelect(d.id)}
-                            onMarkReviewed={() => markReviewed(d.id)}
+                            onOpenReview={() => setReviewDetection(d)}
                         />
                     ))
                 )}
@@ -320,16 +336,24 @@ export default function ProjectPage({ projectId }: Props) {
                     onUploadComplete={handleUploadComplete}
                 />
             )}
+
+            {reviewDetection && (
+                <ReviewModal
+                    detection={reviewDetection}
+                    onClose={() => setReviewDetection(null)}
+                    onMarkReviewed={handleModalReviewed}
+                />
+            )}
         </div>
     );
 }
 
 /* DETECTION CARD */
-function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed }: {
+function DetectionCard({ detection: d, selected, onToggleSelect, onOpenReview }: {
     detection: Detection;
     selected: boolean;
     onToggleSelect: () => void;
-    onMarkReviewed: () => void;
+    onOpenReview: () => void;
 }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [loading, setLoading] = useState(true);
@@ -438,7 +462,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
 
                 <div className={styles.cardFooter}>
                     {d.status === "needs_review" ? (
-                        <button className={styles.btnReview} onClick={onMarkReviewed}>Review</button>
+                        <button className={styles.btnReview} onClick={onOpenReview}>Review</button>
                     ) : (
                         <span className={styles.btnReviewed}>
                             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -448,7 +472,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
                             Reviewed
                         </span>
                     )}
-                    <button className={styles.btnDetail}>Details →</button>
+                    <button className={styles.btnDetail} onClick={onOpenReview}>Details →</button>
                 </div>
             </div>
         </div>
