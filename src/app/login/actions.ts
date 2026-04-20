@@ -57,7 +57,7 @@ export async function login(prevState: unknown, formData: FormData) {
 
     if (error) return { errors: { email: ["Invalid email or password"] } }
 
-    redirect("/dashboard")
+    redirect("/projects")
 }
 
 export async function logout() {
@@ -86,5 +86,5 @@ export async function register(prevState: unknown, formData: FormData) {
 
     if (error) return { errors: { email: [error.message] } }
 
-    redirect("/dashboard");
+    redirect("/projects");
 }

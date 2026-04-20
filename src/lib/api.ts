@@ -85,6 +85,7 @@ export async function getProjectFrames(projectId: string): Promise<{
             display_label: string;
             score: number;
         }[];
+        frame_url: string;
     }[];
 }> {
     const res = await fetch(`${API_URL}/api/projects/${projectId}/frames`, {

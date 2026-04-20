@@ -63,6 +63,7 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
 
             setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));
 
+            await new Promise(resolve => setTimeout(resolve, 2000));
             api.segmentUpload(projectId, response.upload_id);
             onUploadComplete(response.upload_id, response.frame_count);
 
