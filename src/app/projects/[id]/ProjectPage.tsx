@@ -68,16 +68,35 @@ export default function ProjectPage({ projectId }: Props) {
 
         pollingRef.current = setInterval(async () => {
             try {
-                const status = await api.getUploadStatus(uploadId);
+                const data = await api.getProjectFrames(projectId);
+
+                const total = data.frames.length;
+                const processed = data.frames.filter(f => f.status === "segmented").length;
+
                 setProcessing({
                     uploadId,
-                    totalFrames: status.total_frames,
-                    framesProcessed: status.frames_processed,
-                    status: status.status,
+                    totalFrames: total,
+                    framesProcessed: processed,
+                    status: processed === total ? "ready" : "processing",
                 });
-                await fetchDetections();
 
-                if (status.status === "segmented" || status.status === "failed") {
+                const allDetections: Detection[] = [];
+                for (const frame of data.frames) {
+                    for (const det of frame.detections) {
+                        allDetections.push({
+                            ...det,
+                            frame_id: frame.id,
+                            source_filename: frame.source_filename,
+                            frame_url: frame.frame_url,
+                            display_label: det.display_label ?? "",
+                            score: det.score ?? 0,
+                            status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
+                        });
+                    }
+                }
+                setDetections(allDetections);
+
+                if (processed === total) {
                     clearInterval(pollingRef.current!);
                     pollingRef.current = null;
                     setProcessing(null);
@@ -110,12 +129,21 @@ export default function ProjectPage({ projectId }: Props) {
                 }
             }
             setDetections(allDetections);
+
+            const processingFrames = data.frames.filter(f =>
+                f.status === "queued" || f.status === "segmenting" || f.status === "processing_frames"
+            );
+            if (processingFrames.length > 0) {
+                const uploadId = processingFrames[0].upload_id;
+                startPolling(uploadId, data.frames.length);
+            }
         }).catch(console.error);
 
         return () => {
             cancelled = true;
             if (pollingRef.current) clearInterval(pollingRef.current);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
 
     function handleUploadComplete(uploadId: string, totalFrames: number) {
