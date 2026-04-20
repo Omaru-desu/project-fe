@@ -351,7 +351,7 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onMarkReviewed 
                 ctx.drawImage(img, 0, 0, 300, 170);
 
                 ctx.strokeStyle = "#000000";
-                ctx.lineWidth = 4;
+                ctx.lineWidth = 2;
                 ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY);
 
                 const lbl = (d.display_label || "Unknown")

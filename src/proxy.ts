@@ -4,8 +4,6 @@ import { createServerClient } from "@supabase/ssr"
 export async function proxy(request: NextRequest) {
     let response = NextResponse.next({ request })
 
-const protectedRoutes = ["/dashboard", "/projects"];
-const publicRoutes = ["/login"];
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -23,16 +21,16 @@ const publicRoutes = ["/login"];
 
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
+    if (!user && request.nextUrl.pathname.startsWith("/projects")) {
         return NextResponse.redirect(new URL("/login", request.url))
     }
     if (user && request.nextUrl.pathname.startsWith("/login")) {
-        return NextResponse.redirect(new URL("/dashboard", request.url))
+        return NextResponse.redirect(new URL("/projects", request.url))
     }
 
     return response
 }
 
 export const config = {
-    matcher: ["/dashboard/:path*", "/login"],
+    matcher: ["/dashboard/:path*", "/projects/:path*", "/login"],
 }
