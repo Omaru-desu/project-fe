@@ -36,6 +36,12 @@ export default function ProjectPage({ projectId }: Props) {
     const pollingRef = useRef<NodeJS.Timeout | null>(null);
     const [reviewDetection, setReviewDetection] = useState<Detection | null>(null);
 
+    type Tab = "gallery" | "annotate";
+    const [tab, setTab] = useState<Tab>("gallery");
+    const [activeFrameIndex, setActiveFrameIndex] = useState(0);
+    const [frames, setFrames] = useState<any[]>([]);
+    const [activeDetectionId, setActiveDetectionId] = useState<string | null>(null);
+    
     useEffect(() => {
         api.getProjects().then(projects => {
             const found = projects.find(p => p.id === projectId);
@@ -46,6 +52,7 @@ export default function ProjectPage({ projectId }: Props) {
 
     const fetchDetections = async () => {
         const data = await api.getProjectFrames(projectId);
+        setFrames(data.frames);
         const allDetections: Detection[] = [];
         for (const frame of data.frames) {
             for (const det of frame.detections) {
@@ -69,7 +76,7 @@ export default function ProjectPage({ projectId }: Props) {
         pollingRef.current = setInterval(async () => {
             try {
                 const data = await api.getProjectFrames(projectId);
-
+                setFrames(data.frames);
                 const total = data.frames.length;
                 const processed = data.frames.filter(f => f.status === "segmented").length;
 
@@ -114,6 +121,7 @@ export default function ProjectPage({ projectId }: Props) {
         let cancelled = false;
         api.getProjectFrames(projectId).then(data => {
             if (cancelled) return;
+            setFrames(data.frames);
             const allDetections: Detection[] = [];
             for (const frame of data.frames) {
                 for (const det of frame.detections) {
@@ -280,6 +288,21 @@ export default function ProjectPage({ projectId }: Props) {
                 </div>
             </div>
 
+            <div className={styles.tabs}>
+                <button
+                    className={`${styles.tabBtn} ${tab === "gallery" ? styles.tabActive : ""}`}
+                    onClick={() => setTab("gallery")}
+                >
+                    Gallery
+                </button>
+                <button
+                    className={`${styles.tabBtn} ${tab === "annotate" ? styles.tabActive : ""}`}
+                    onClick={() => setTab("annotate")}
+                >
+                    Annotate
+                </button>
+            </div>
+
             {/* BULK BAR */}
             {selected.length > 0 && (
                 <div className={styles.bulkBar}>
@@ -339,7 +362,7 @@ export default function ProjectPage({ projectId }: Props) {
             </div>
 
             {/* GRID */}
-            <div className={styles.grid}>
+            {/* <div className={styles.grid}>
                 {visible.length === 0 ? (
                     <div className={styles.emptyState}>
                         {processing ? "Waiting for detections…" : "No detections match your filter."}
@@ -355,7 +378,35 @@ export default function ProjectPage({ projectId }: Props) {
                         />
                     ))
                 )}
-            </div>
+            </div> */}
+            {tab === "gallery" && (
+                <div className={styles.grid}>
+                    {visible.length === 0 ? (
+                        <div className={styles.emptyState}>
+                            {processing ? "Waiting for detections…" : "No detections match your filter."}
+                        </div>
+                    ) : (
+                        visible.map(d => (
+                            <DetectionCard
+                                key={d.id}
+                                detection={d}
+                                selected={selected.includes(d.id)}
+                                onToggleSelect={() => toggleSelect(d.id)}
+                                onOpenReview={() => setReviewDetection(d)}
+                            />
+                        ))
+                    )}
+                </div>
+            )}
+
+            {tab === "annotate" && frames.length > 0 && (
+                <AnnotateView
+                    frames={frames}
+                    activeFrameIndex={activeFrameIndex}
+                    setActiveFrameIndex={setActiveFrameIndex}
+                    projectId={projectId}
+                />
+            )}
 
             {showUpload && (
                 <UploadMediaModal
@@ -502,6 +553,214 @@ function DetectionCard({ detection: d, selected, onToggleSelect, onOpenReview }:
                     )}
                     <button className={styles.btnDetail} onClick={onOpenReview}>Details →</button>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function AnnotateView({
+    frames,
+    activeFrameIndex,
+    setActiveFrameIndex,
+    projectId,
+}: {
+    frames: any[];
+    activeFrameIndex: number;
+    setActiveFrameIndex: (i: number | ((p: number) => number)) => void;
+    projectId: string;
+}) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const frame = frames[activeFrameIndex];
+    const [detections, setDetections] = useState<any[]>([]);
+    const [activeDetectionId, setActiveDetectionId] = useState<string | null>(null);
+    const [loadingDets, setLoadingDets] = useState(false);
+
+    // Fetch detections when frame changes
+    useEffect(() => {
+        if (!frame) return;
+        setActiveDetectionId(null);
+        setLoadingDets(true);
+        api.getFrameDetections(projectId, frame.id)
+            .then(data => setDetections(data.detections ?? data))
+            .catch(console.error)
+            .finally(() => setLoadingDets(false));
+    }, [frame?.id, projectId]);
+
+    // Draw canvas
+    useEffect(() => {
+        if (!frame) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        const img = new Image();
+        // img.crossOrigin = "anonymous";
+        img.onload = () => {
+            const maxW = canvas.parentElement?.clientWidth ?? 800;
+            const maxH = canvas.parentElement?.clientHeight ?? 500;
+            const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
+            canvas.width = img.naturalWidth * scale;
+            canvas.height = img.naturalHeight * scale;
+
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            const colors = ["#3b9eff","#f59e0b","#a78bfa","#34d399","#f472b6","#fb923c"];
+            detections.forEach((d, i) => {
+                const [x1, y1, x2, y2] = d.bbox;
+                const sx1 = x1 * scale, sy1 = y1 * scale;
+                const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
+                const color = colors[i % colors.length];
+                const isActive = d.id === activeDetectionId;
+
+                ctx.strokeStyle = color;
+                ctx.lineWidth = isActive ? 3 : 2;
+                ctx.strokeRect(sx1, sy1, sw, sh);
+
+                const label = `${d.display_label || "Unknown"} · ${Math.round((d.score ?? 0) * 100)}%`;
+                ctx.font = `bold 12px system-ui`;
+                const tw = ctx.measureText(label).width;
+                ctx.fillStyle = color;
+                ctx.fillRect(sx1, sy1 - 20, tw + 8, 18);
+                ctx.fillStyle = "#fff";
+                ctx.fillText(label, sx1 + 4, sy1 - 5);
+            });
+        };
+        img.src = frame.frame_url;
+    }, [frame, detections, activeDetectionId]);
+
+    function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+        const canvas = canvasRef.current;
+        if (!canvas || !frame) return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+        const scale = canvas.width / (frame.natural_width ?? canvas.width);
+
+        for (const d of [...detections].reverse()) {
+            const [x1, y1, x2, y2] = d.bbox;
+            if (mx >= x1 * scale && mx <= x2 * scale && my >= y1 * scale && my <= y2 * scale) {
+                setActiveDetectionId(d.id === activeDetectionId ? null : d.id);
+                return;
+            }
+        }
+        setActiveDetectionId(null);
+    }
+
+    const activeDetection = detections.find(d => d.id === activeDetectionId);
+    const colors = ["#3b9eff","#f59e0b","#a78bfa","#34d399","#f472b6","#fb923c"];
+
+    return (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gridTemplateRows: "1fr 90px", height: "calc(100vh - 230px)", gap: 12, padding: "16px 24px" }}>
+
+            {/* CANVAS VIEWER */}
+            <div style={{ background: "#0a1628", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
+                <canvas
+                    ref={canvasRef}
+                    onClick={handleCanvasClick}
+                    style={{ maxWidth: "100%", maxHeight: "100%", cursor: "crosshair" }}
+                />
+                <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, alignItems: "center" }}>
+                    <button
+                        onClick={() => { setActiveFrameIndex(p => Math.max(0, p - 1)); }}
+                        disabled={activeFrameIndex === 0}
+                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+                    >← Prev</button>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>
+                        Photo {activeFrameIndex + 1} of {frames.length}
+                    </span>
+                    <button
+                        onClick={() => { setActiveFrameIndex(p => Math.min(frames.length - 1, p + 1)); }}
+                        disabled={activeFrameIndex === frames.length - 1}
+                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+                    >Next →</button>
+                </div>
+                <div style={{ position: "absolute", bottom: 16, right: 16, fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: 500 }}>
+                    Click detection to select · or draw new bbox
+                </div>
+            </div>
+
+            {/* SIDEBAR */}
+            <div style={{ background: "#0d1e30", borderRadius: 12, padding: 14, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                    <span>Detections</span>
+                    <span style={{ color: "#3b9eff" }}>{detections.length} in photo</span>
+                </div>
+
+                {loadingDets ? (
+                    <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textAlign: "center", paddingTop: 20 }}>Loading…</div>
+                ) : detections.map((d, i) => (
+                    <div
+                        key={d.id}
+                        onClick={() => setActiveDetectionId(d.id === activeDetectionId ? null : d.id)}
+                        style={{
+                            display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                            borderRadius: 8, cursor: "pointer", transition: "background 0.15s",
+                            background: d.id === activeDetectionId ? "rgba(59,158,255,0.12)" : "transparent",
+                            border: `1px solid ${d.id === activeDetectionId ? "rgba(59,158,255,0.3)" : "transparent"}`,
+                        }}
+                    >
+                        <div style={{ width: 10, height: 10, borderRadius: "50%", background: colors[i % colors.length], flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: 13, color: "#fff", fontWeight: d.id === activeDetectionId ? 600 : 400 }}>
+                            {d.display_label || "Unknown"}
+                        </span>
+                        <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>
+                            {Math.round((d.score ?? 0) * 100)}%
+                        </span>
+                    </div>
+                ))}
+
+                <button style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: "transparent", border: "1px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer", fontWeight: 600, textAlign: "left" }}>
+                    + Draw new bounding box
+                </button>
+
+                {/* Annotate panel for active detection */}
+                {activeDetection && (
+                    <div style={{ marginTop: 8, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+                            <span>Annotate</span>
+                            <span style={{ color: "#3b9eff" }}>{activeDetection.display_label} selected</span>
+                        </div>
+                        <div style={{ background: "rgba(59,158,255,0.1)", border: "1px solid rgba(59,158,255,0.2)", borderRadius: 8, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{activeDetection.display_label}</span>
+                            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{Math.round((activeDetection.score ?? 0) * 100)}%</span>
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Label</div>
+                        <input
+                            type="text"
+                            defaultValue={activeDetection.display_label}
+                            style={{ width: "100%", background: "#fff", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontWeight: 500, color: "#0d1f2d", outline: "none", boxSizing: "border-box" }}
+                        />
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                            <button style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(0,180,160,0.15)", border: "1px solid rgba(0,180,160,0.3)", color: "#00b4a0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                                ✓ Approve
+                            </button>
+                            <button
+                                onClick={() => setActiveDetectionId(null)}
+                                style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                            >
+                                ✕ Reject
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* FILMSTRIP */}
+            <div style={{ gridColumn: "1 / span 2", display: "flex", gap: 8, overflowX: "auto", alignItems: "center", paddingBottom: 4 }}>
+                {frames.map((f, i) => (
+                    <img
+                        key={f.id}
+                        src={f.frame_url}
+                        onClick={() => setActiveFrameIndex(i)}
+                        style={{
+                            height: 68, minWidth: 110, objectFit: "cover", borderRadius: 6, cursor: "pointer",
+                            opacity: i === activeFrameIndex ? 1 : 0.45,
+                            border: i === activeFrameIndex ? "2px solid #00b4a0" : "2px solid transparent",
+                            transition: "all 0.15s", flexShrink: 0
+                        }}
+                    />
+                ))}
             </div>
         </div>
     );
