@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Detection } from "../../../types/project";
@@ -39,8 +39,7 @@ export default function ProjectPage({ projectId }: Props) {
     type Tab = "gallery" | "annotate";
     const [tab, setTab] = useState<Tab>("gallery");
     const [activeFrameIndex, setActiveFrameIndex] = useState(0);
-    const [frames, setFrames] = useState<any[]>([]);
-    const [activeDetectionId, setActiveDetectionId] = useState<string | null>(null);
+    const [frames, setFrames] = useState<any[]>([]); 
     
     useEffect(() => {
         api.getProjects().then(projects => {
@@ -361,24 +360,6 @@ export default function ProjectPage({ projectId }: Props) {
                 </div>
             </div>
 
-            {/* GRID */}
-            {/* <div className={styles.grid}>
-                {visible.length === 0 ? (
-                    <div className={styles.emptyState}>
-                        {processing ? "Waiting for detections…" : "No detections match your filter."}
-                    </div>
-                ) : (
-                    visible.map(d => (
-                        <DetectionCard
-                            key={d.id}
-                            detection={d}
-                            selected={selected.includes(d.id)}
-                            onToggleSelect={() => toggleSelect(d.id)}
-                            onOpenReview={() => setReviewDetection(d)}
-                        />
-                    ))
-                )}
-            </div> */}
             {tab === "gallery" && (
                 <div className={styles.grid}>
                     {visible.length === 0 ? (
@@ -574,6 +555,23 @@ function AnnotateView({
     const [detections, setDetections] = useState<any[]>([]);
     const [activeDetectionId, setActiveDetectionId] = useState<string | null>(null);
     const [loadingDets, setLoadingDets] = useState(false);
+    const detectionGroups = useMemo(() => groupDetections(detections), [detections]);  
+    const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(new Map());
+    const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!frame) return;
+        setActiveDetectionId(null);
+        setLoadingDets(true);
+        api.getFrameDetections(projectId, frame.id)
+            .then(data => {
+                const dets = data.detections ?? data;
+                setDetections(dets);
+                setLabelColorMap(buildLabelColorMap(dets)); // ← add this
+            })
+            .catch(console.error)
+            .finally(() => setLoadingDets(false));
+    }, [frame?.id, projectId]);
 
     // Fetch detections when frame changes
     useEffect(() => {
@@ -595,7 +593,6 @@ function AnnotateView({
         if (!ctx) return;
 
         const img = new Image();
-        // img.crossOrigin = "anonymous";
         img.onload = () => {
             const maxW = canvas.parentElement?.clientWidth ?? 800;
             const maxH = canvas.parentElement?.clientHeight ?? 500;
@@ -605,12 +602,11 @@ function AnnotateView({
 
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-            const colors = ["#3b9eff","#f59e0b","#a78bfa","#34d399","#f472b6","#fb923c"];
-            detections.forEach((d, i) => {
+            detectionGroups.forEach(({ primary: d }) => {
                 const [x1, y1, x2, y2] = d.bbox;
                 const sx1 = x1 * scale, sy1 = y1 * scale;
                 const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
-                const color = colors[i % colors.length];
+                const color = labelColorMap.get(d.display_label || "Unknown") ?? "#888"
                 const isActive = d.id === activeDetectionId;
 
                 ctx.strokeStyle = color;
@@ -627,7 +623,7 @@ function AnnotateView({
             });
         };
         img.src = frame.frame_url;
-    }, [frame, detections, activeDetectionId]);
+    }, [frame, detectionGroups, activeDetectionId]);
 
     function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
         const canvas = canvasRef.current;
@@ -646,9 +642,6 @@ function AnnotateView({
         }
         setActiveDetectionId(null);
     }
-
-    const activeDetection = detections.find(d => d.id === activeDetectionId);
-    const colors = ["#3b9eff","#f59e0b","#a78bfa","#34d399","#f472b6","#fb923c"];
 
     return (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gridTemplateRows: "1fr 90px", height: "calc(100vh - 230px)", gap: 12, padding: "16px 24px" }}>
@@ -682,69 +675,95 @@ function AnnotateView({
 
             {/* SIDEBAR */}
             <div style={{ background: "#0d1e30", borderRadius: 12, padding: 14, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-                    <span>Detections</span>
-                    <span style={{ color: "#3b9eff" }}>{detections.length} in photo</span>
-                </div>
+    
+    {/* Header */}
+    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+        <span>Detections</span>
+        <span style={{ color: "#3b9eff" }}>{detectionGroups.length} in photo</span>
+    </div>
 
-                {loadingDets ? (
-                    <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textAlign: "center", paddingTop: 20 }}>Loading…</div>
-                ) : detections.map((d, i) => (
-                    <div
-                        key={d.id}
-                        onClick={() => setActiveDetectionId(d.id === activeDetectionId ? null : d.id)}
-                        style={{
-                            display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
-                            borderRadius: 8, cursor: "pointer", transition: "background 0.15s",
-                            background: d.id === activeDetectionId ? "rgba(59,158,255,0.12)" : "transparent",
-                            border: `1px solid ${d.id === activeDetectionId ? "rgba(59,158,255,0.3)" : "transparent"}`,
-                        }}
-                    >
-                        <div style={{ width: 10, height: 10, borderRadius: "50%", background: colors[i % colors.length], flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: 13, color: "#fff", fontWeight: d.id === activeDetectionId ? 600 : 400 }}>
-                            {d.display_label || "Unknown"}
-                        </span>
-                        <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>
-                            {Math.round((d.score ?? 0) * 100)}%
-                        </span>
-                    </div>
-                ))}
-
-                <button style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: "transparent", border: "1px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer", fontWeight: 600, textAlign: "left" }}>
-                    + Draw new bounding box
-                </button>
-
-                {/* Annotate panel for active detection */}
-                {activeDetection && (
-                    <div style={{ marginTop: 8, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
-                            <span>Annotate</span>
-                            <span style={{ color: "#3b9eff" }}>{activeDetection.display_label} selected</span>
-                        </div>
-                        <div style={{ background: "rgba(59,158,255,0.1)", border: "1px solid rgba(59,158,255,0.2)", borderRadius: 8, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{activeDetection.display_label}</span>
-                            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{Math.round((activeDetection.score ?? 0) * 100)}%</span>
-                        </div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Label</div>
-                        <input
-                            type="text"
-                            defaultValue={activeDetection.display_label}
-                            style={{ width: "100%", background: "#fff", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontWeight: 500, color: "#0d1f2d", outline: "none", boxSizing: "border-box" }}
-                        />
-                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                            <button style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(0,180,160,0.15)", border: "1px solid rgba(0,180,160,0.3)", color: "#00b4a0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                                ✓ Approve
-                            </button>
-                            <button
-                                onClick={() => setActiveDetectionId(null)}
-                                style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                            >
-                                ✕ Reject
-                            </button>
-                        </div>
-                    </div>
-                )}
+    {/* Detection list */}
+    {loadingDets ? (
+    <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textAlign: "center", paddingTop: 20 }}>Loading…</div>
+) : detectionGroups.map(({ primary: d, overlapping }) => (
+    <div key={d.id}>
+            {/* Primary detection row */}
+            <div
+                onClick={() => setActiveDetectionId(d.id === activeDetectionId ? null : d.id)}
+                style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                    borderRadius: 8, cursor: "pointer", transition: "background 0.15s",
+                    background: d.id === activeDetectionId ? "rgba(59,158,255,0.12)" : "transparent",
+                    border: `1px solid ${d.id === activeDetectionId ? "rgba(59,158,255,0.3)" : "transparent"}`,
+                }}
+            >
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: labelColorMap.get(d.display_label || "Unknown") ?? "#888", flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: 13, color: "#fff", fontWeight: d.id === activeDetectionId ? 600 : 400 }}>
+                    {d.display_label || "Unknown"}
+                </span>
+                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>
+                    {Math.round((d.score ?? 0) * 100)}%
+                </span>
             </div>
+
+            {/* Overlapping alternatives */}
+            {overlapping.map(alt => (
+                <div key={alt.id} style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "5px 10px 5px 28px", opacity: 0.6,
+                }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: labelColorMap.get(alt.display_label || "Unknown") ?? "#888", flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
+                        {alt.display_label || "Unknown"}
+                    </span>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+                        {Math.round((alt.score ?? 0) * 100)}%
+                    </span>
+                </div>
+            ))}
+        </div>
+    ))}
+
+    {/* Draw new bounding box button */}
+    <button style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: "transparent", border: "1px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer", fontWeight: 600, textAlign: "left" }}>
+        + Draw new bounding box
+    </button>
+
+    {/* Annotate panel — only shows when a detection is selected */}
+    {activeDetectionId && (() => {
+        const activeDetection = detections.find(d => d.id === activeDetectionId);
+        if (!activeDetection) return null;
+        return (
+            <div style={{ marginTop: 8, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+                    <span>Annotate</span>
+                    <span style={{ color: "#3b9eff" }}>{activeDetection.display_label} selected</span>
+                </div>
+                <div style={{ background: "rgba(59,158,255,0.1)", border: "1px solid rgba(59,158,255,0.2)", borderRadius: 8, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{activeDetection.display_label}</span>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{Math.round((activeDetection.score ?? 0) * 100)}%</span>
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Label</div>
+                <input
+                    type="text"
+                    defaultValue={activeDetection.display_label}
+                    style={{ width: "100%", background: "#fff", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontWeight: 500, color: "#0d1f2d", outline: "none", boxSizing: "border-box" }}
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(0,180,160,0.15)", border: "1px solid rgba(0,180,160,0.3)", color: "#00b4a0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        ✓ Approve
+                    </button>
+                    <button
+                        onClick={() => setActiveDetectionId(null)}
+                        style={{ flex: 1, padding: "8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                    >
+                        ✕ Reject
+                    </button>
+                </div>
+            </div>
+        );
+    })()}
+</div>
 
             {/* FILMSTRIP */}
             <div style={{ gridColumn: "1 / span 2", display: "flex", gap: 8, overflowX: "auto", alignItems: "center", paddingBottom: 4 }}>
@@ -764,4 +783,62 @@ function AnnotateView({
             </div>
         </div>
     );
+}
+
+// Build this once from all detections in the frame, outside the component or as a useMemo
+function buildLabelColorMap(detections: any[]): Map<string, string> {
+    const uniqueLabels = [...new Set(detections.map(d => d.display_label || "Unknown"))];
+    const map = new Map<string, string>();
+    
+    uniqueLabels.forEach((label, i) => {
+        // Spread evenly around the wheel, offset by golden angle to avoid similar hues
+        const hue = (i * 137.508) % 360;
+        map.set(label, `hsl(${hue}, 75%, 58%)`);
+    });
+    
+    return map;
+}
+
+function iou(a: number[], b: number[]): number {
+    const [ax1, ay1, ax2, ay2] = a;
+    const [bx1, by1, bx2, by2] = b;
+
+    const interX1 = Math.max(ax1, bx1);
+    const interY1 = Math.max(ay1, by1);
+    const interX2 = Math.min(ax2, bx2);
+    const interY2 = Math.min(ay2, by2);
+
+    const interW = Math.max(0, interX2 - interX1);
+    const interH = Math.max(0, interY2 - interY1);
+    const interArea = interW * interH;
+
+    const aArea = (ax2 - ax1) * (ay2 - ay1);
+    const bArea = (bx2 - bx1) * (by2 - by1);
+
+    return interArea / (aArea + bArea - interArea);
+}
+
+const IOU_THRESHOLD = 0.85; // tweak this — higher = only merge near-identical boxes
+
+function groupDetections(detections: any[]): { primary: any; overlapping: any[] }[] {
+    const sorted = [...detections].sort((a, b) => b.score - a.score);
+    const used = new Set<string>();
+    const groups: { primary: any; overlapping: any[] }[] = [];
+
+    for (const det of sorted) {
+        if (used.has(det.id)) continue;
+        const group = { primary: det, overlapping: [] as any[] };
+        used.add(det.id);
+
+        for (const other of sorted) {
+            if (used.has(other.id)) continue;
+            if (iou(det.bbox, other.bbox) >= IOU_THRESHOLD) {
+                group.overlapping.push(other);
+                used.add(other.id);
+            }
+        }
+        groups.push(group);
+    }
+
+    return groups;
 }
