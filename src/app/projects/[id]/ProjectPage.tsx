@@ -587,8 +587,10 @@ function AnnotateView({
                             onMouseEnter={e => (e.currentTarget.style.borderColor = "#00b4a0")}
                             onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)")}
                         >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                                 src={f.frame_url}
+                                alt={f.source_filename ?? `Frame ${i + 1}`}
                                 style={{ width: "100%", height: 150, objectFit: "cover", display: "block" }}
                             />
                             <div style={{ padding: "10px 12px" }}>
@@ -665,6 +667,7 @@ function AnnotateReview({
             })
             .catch(console.error)
             .finally(() => setLoadingDets(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frame?.id, projectId]);
 
     useEffect(() => {
@@ -963,9 +966,11 @@ function AnnotateReview({
             {/* FILMSTRIP */}
             <div style={{ gridColumn: "1 / span 2", display: "flex", gap: 8, overflowX: "auto", alignItems: "center", paddingBottom: 4 }}>
                 {frames.map((f, i) => (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                         key={f.id}
                         src={f.frame_url}
+                        alt={`Frame ${i + 1}`}
                         onClick={() => goToFrame(i)}
                         style={{
                             height: 68, minWidth: 110, objectFit: "cover", borderRadius: 6, cursor: "pointer",
