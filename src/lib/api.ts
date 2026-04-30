@@ -84,6 +84,7 @@ export async function getProjectFrames(projectId: string): Promise<{
             taxon: string | null;
             display_label: string;
             score: number;
+            annotation_source: "machine" | "human"; 
         }[];
         frame_url: string;
     }[];
@@ -137,4 +138,83 @@ export async function getFrameDetections(projectId: string, frameId: string) {
     });
     if (!res.ok) throw new Error("Failed to fetch detections");
     return res.json();
+}
+
+export interface BoundingBoxPayload {
+    bbox: number[];           // [x1, y1, x2, y2] in pixels — matches detections.bbox
+    display_label: string;
+    score?: number;
+    notes?: string;
+}
+ 
+export interface BoundingBox {
+    id: string;
+    frame_id: string;
+    project_id: string;
+    upload_id: string | null;
+    display_label: string;
+    bbox: number[];
+    score: number | null;
+    status: string;
+    annotation_source: "machine" | "human";
+    created_at: string;
+}
+ 
+export async function getBoundingBoxes(
+    projectId: string,
+    frameId: string
+): Promise<BoundingBox[]> {
+    const res = await fetch(
+        `${API_URL}/api/projects/${projectId}/frames/${frameId}/bounding-boxes`,
+        { headers: await authHeaders() }
+    );
+    return handleResponse<BoundingBox[]>(res);
+}
+ 
+export async function createBoundingBox(
+    projectId: string,
+    frameId: string,
+    data: BoundingBoxPayload
+): Promise<BoundingBox> {
+    const res = await fetch(
+        `${API_URL}/api/projects/${projectId}/frames/${frameId}/bounding-boxes`,
+        {
+            method: 'POST',
+            headers: await authHeaders(),
+            body: JSON.stringify(data),
+        }
+    );
+    return handleResponse<BoundingBox>(res);
+}
+ 
+export async function updateBoundingBox(
+    projectId: string,
+    frameId: string,
+    bboxId: string,
+    data: Partial<BoundingBoxPayload>
+): Promise<BoundingBox> {
+    const res = await fetch(
+        `${API_URL}/api/projects/${projectId}/frames/${frameId}/bounding-boxes/${bboxId}`,
+        {
+            method: 'PUT',
+            headers: await authHeaders(),
+            body: JSON.stringify(data),
+        }
+    );
+    return handleResponse<BoundingBox>(res);
+}
+ 
+export async function deleteBoundingBox(
+    projectId: string,
+    frameId: string,
+    bboxId: string
+): Promise<void> {
+    const res = await fetch(
+        `${API_URL}/api/projects/${projectId}/frames/${frameId}/bounding-boxes/${bboxId}`,
+        {
+            method: 'DELETE',
+            headers: await authHeaders(),
+        }
+    );
+    return handleResponse<void>(res);
 }

@@ -33,6 +33,7 @@ export interface Detection {
     score: number;
     source_filename: string;
     frame_url: string;
+    annotation_source: "machine" | "human"; 
 }
 
 export interface ProjectDetail {

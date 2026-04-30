@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Detection } from "../../../types/project";
 import * as api from "../../../lib/api";
+import type { BoundingBox } from "../../../lib/api";
 import styles from "./ProjectPage.module.css";
 import UploadMediaModal from "../../../components/projects/UploadMediaModal";
 import ReviewModal from "../../../components/projects/ReviewModal";
@@ -63,6 +64,7 @@ export default function ProjectPage({ projectId }: Props) {
                     display_label: det.display_label ?? "",
                     score: det.score ?? 0,
                     status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
+                    annotation_source: det.annotation_source ?? "machine",
                 });
             }
         }
@@ -644,6 +646,8 @@ function AnnotateReview({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [activeFrameIndex, setActiveFrameIndex] = useState(initialFrameIndex);
     const frame = frames[activeFrameIndex];
+ 
+    // Machine detections
     const [detections, setDetections] = useState<any[]>([]);
     const [activeDetectionId, setActiveDetectionId] = useState<string | null>(null);
     const [loadingDets, setLoadingDets] = useState(false);
@@ -652,39 +656,66 @@ function AnnotateReview({
     const [saveError, setSaveError] = useState<string | null>(null);
     const detectionGroups = useMemo(() => groupDetections(detections), [detections]);
     const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(new Map());
-
+ 
+    // Human bounding boxes
+    const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
+    const [activeBboxId, setActiveBboxId] = useState<string | null>(null);
+    const [loadingBboxes, setLoadingBboxes] = useState(false);
+ 
+    // Draw mode
+    const [drawMode, setDrawMode] = useState(false);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const drawStart = useRef<{ x: number; y: number } | null>(null);
+    const drawCurrent = useRef<{ x: number; y: number } | null>(null);
+ 
+    // Species popover
+    const [pendingBox, setPendingBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+    const [labelInput, setLabelInput] = useState("");
+    const [savingBbox, setSavingBbox] = useState(false);
+ 
+    // Load detections + bboxes when frame changes
     useEffect(() => {
         if (!frame) return;
         setActiveDetectionId(null);
+        setActiveBboxId(null);
         setEditLabel("");
         setSaveError(null);
+        setPendingBox(null);
+        setDrawMode(false);
+        setIsDrawing(false);
+ 
         setLoadingDets(true);
         api.getFrameDetections(projectId, frame.id)
             .then(data => {
-                const dets = data.detections ?? data;
+                const dets = (data.detections ?? data).filter((d: any) => d.annotation_source !== "human");
                 setDetections(dets);
                 setLabelColorMap(buildLabelColorMap(dets));
             })
             .catch(console.error)
             .finally(() => setLoadingDets(false));
+ 
+        setLoadingBboxes(true);
+        api.getBoundingBoxes(projectId, frame.id)
+            .catch(() => [] as BoundingBox[])
+            .then(data => setBoundingBoxes(data))
+            .finally(() => setLoadingBboxes(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frame?.id, projectId]);
-
+ 
     useEffect(() => {
         if (!activeDetectionId) { setEditLabel(""); return; }
         const det = detections.find(d => d.id === activeDetectionId);
         setEditLabel(det?.display_label ?? "");
         setSaveError(null);
     }, [activeDetectionId, detections]);
-
-    // Draw canvas
-    useEffect(() => {
-        if (!frame) return;
+ 
+    // ── Canvas redraw ───────────────────────────────────────────────────────
+    const redraw = useCallback(() => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !frame) return;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-
+ 
         const img = new Image();
         img.onload = () => {
             const maxW = canvas.parentElement?.clientWidth ?? 800;
@@ -692,30 +723,27 @@ function AnnotateReview({
             const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
             canvas.width = img.naturalWidth * scale;
             canvas.height = img.naturalHeight * scale;
-
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
+ 
+            // Machine detections — solid coloured boxes with glow on active
             detectionGroups.forEach(({ primary: d }) => {
                 const [x1, y1, x2, y2] = d.bbox;
                 const sx1 = x1 * scale, sy1 = y1 * scale;
                 const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
                 const color = labelColorMap.get(d.display_label || "Unknown") ?? "#888";
                 const isActive = d.id === activeDetectionId;
-
-                // Glow effect for active
-                if (isActive) {
-                    ctx.shadowColor = color;
-                    ctx.shadowBlur = 12;
-                }
+ 
+                if (isActive) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
                 ctx.strokeStyle = color;
-                ctx.lineWidth = isActive ? 3 : 1.5;
+                ctx.lineWidth = isActive ? 1 : 0.5;
+                ctx.setLineDash([]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
                 ctx.shadowBlur = 0;
-
+ 
                 const label = editLabel && isActive
                     ? `${editLabel} · ${Math.round((d.score ?? 0) * 100)}%`
                     : `${d.display_label || "Unknown"} · ${Math.round((d.score ?? 0) * 100)}%`;
-                ctx.font = `bold 11px system-ui`;
+                ctx.font = "bold 11px system-ui";
                 const tw = ctx.measureText(label).width;
                 ctx.fillStyle = color;
                 ctx.beginPath();
@@ -724,28 +752,158 @@ function AnnotateReview({
                 ctx.fillStyle = "#fff";
                 ctx.fillText(label, sx1 + 5, sy1 - 5);
             });
+ 
+            // Human bboxes — dashed boxes, colour matched to species
+            boundingBoxes.forEach(b => {
+                const [x1, y1, x2, y2] = b.bbox;
+                const sx1 = x1 * scale, sy1 = y1 * scale;
+                const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
+                const isActive = b.id === activeBboxId;
+
+                // Use same species color as machine detections, fallback to teal
+                const color = labelColorMap.get(b.display_label) ?? "#00b4a0";
+
+                ctx.strokeStyle = isActive ? "#fff" : color;
+                ctx.lineWidth = isActive ? 1 : 0.5;
+                ctx.setLineDash([6, 3]);          // dashed = human drawn
+                ctx.strokeRect(sx1, sy1, sw, sh);
+                ctx.setLineDash([]);
+                ctx.font = "bold 11px system-ui";
+                const tw = ctx.measureText(b.display_label).width;
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.roundRect(sx1, Math.max(0, sy1 - 20), tw + 10, 18, 4);
+                ctx.fill();
+                ctx.fillStyle = "#fff";
+                ctx.fillText(b.display_label, sx1 + 5, sy1 - 5);
+            });
+ 
+            // In-progress drag rect
+            if (isDrawing && drawStart.current && drawCurrent.current) {
+                const { x: sx, y: sy } = drawStart.current;
+                const { x: ex, y: ey } = drawCurrent.current;
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 0.5;
+                ctx.setLineDash([4, 3]);
+                ctx.strokeRect(sx, sy, ex - sx, ey - sy);
+                ctx.setLineDash([]);
+            }
         };
         img.src = frame.frame_url;
-    }, [frame, detectionGroups, activeDetectionId, labelColorMap, editLabel]);
-
-    function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-        const canvas = canvasRef.current;
-        if (!canvas || !frame) return;
+    }, [frame, detectionGroups, boundingBoxes, activeDetectionId, activeBboxId, labelColorMap, editLabel, isDrawing]);
+ 
+    useEffect(() => { redraw(); }, [redraw]);
+ 
+    // ── Canvas pointer helpers ──────────────────────────────────────────────
+    function canvasCoords(e: React.MouseEvent<HTMLCanvasElement>) {
+        const canvas = canvasRef.current!;
         const rect = canvas.getBoundingClientRect();
-        const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
-        const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-        const scale = canvas.width / (frame.natural_width ?? canvas.width);
-
+        return {
+            x: (e.clientX - rect.left) * (canvas.width / rect.width),
+            y: (e.clientY - rect.top) * (canvas.height / rect.height),
+        };
+    }
+ 
+    function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+        if (!drawMode) return;
+        const pos = canvasCoords(e);
+        drawStart.current = pos;
+        drawCurrent.current = pos;
+        setIsDrawing(true);
+    }
+ 
+    function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+        if (!isDrawing || !drawMode) return;
+        drawCurrent.current = canvasCoords(e);
+        redraw();
+    }
+ 
+    function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
+        if (!isDrawing || !drawMode || !drawStart.current) return;
+        const { x: ex, y: ey } = canvasCoords(e);
+        const { x: sx, y: sy } = drawStart.current;
+        setIsDrawing(false);
+        drawStart.current = null;
+        if (Math.abs(ex - sx) < 10 || Math.abs(ey - sy) < 10) return;
+        setPendingBox({
+            x1: Math.min(sx, ex), y1: Math.min(sy, ey),
+            x2: Math.max(sx, ex), y2: Math.max(sy, ey),
+        });
+        setLabelInput("");
+    }
+ 
+    function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+        if (drawMode) return;
+        const canvas = canvasRef.current!;
+        const { x: mx, y: my } = canvasCoords(e);
+        const scale = canvas.width / (frame?.natural_width ?? canvas.width);
+ 
+        // Check human bboxes first
+        for (const b of [...boundingBoxes].reverse()) {
+            const [x1, y1, x2, y2] = b.bbox;
+            if (mx >= x1 * scale && mx <= x2 * scale && my >= y1 * scale && my <= y2 * scale) {
+                setActiveBboxId(b.id === activeBboxId ? null : b.id);
+                setActiveDetectionId(null);
+                return;
+            }
+        }
+ 
+        // Then machine detections
         for (const d of [...detections].reverse()) {
             const [x1, y1, x2, y2] = d.bbox;
             if (mx >= x1 * scale && mx <= x2 * scale && my >= y1 * scale && my <= y2 * scale) {
                 setActiveDetectionId(d.id === activeDetectionId ? null : d.id);
+                setActiveBboxId(null);
                 return;
             }
         }
+ 
         setActiveDetectionId(null);
+        setActiveBboxId(null);
     }
-
+ 
+    // ── Save pending bbox ───────────────────────────────────────────────────
+    async function handleSaveBbox() {
+        if (!pendingBox || !labelInput.trim() || !frame) return;
+        const canvas = canvasRef.current!;
+        const img = new Image();
+        img.src = frame.frame_url;
+        const scale = canvas.width / (img.naturalWidth || canvas.width);
+ 
+        setSavingBbox(true);
+        try {
+            const created = await api.createBoundingBox(projectId, frame.id, {
+                bbox: [
+                    Math.round(pendingBox.x1 / scale),
+                    Math.round(pendingBox.y1 / scale),
+                    Math.round(pendingBox.x2 / scale),
+                    Math.round(pendingBox.y2 / scale),
+                ],
+                display_label: labelInput.trim(),
+            });
+            setBoundingBoxes(prev => [...prev, created]);
+            setPendingBox(null);
+            setDrawMode(false);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setSavingBbox(false);
+        }
+    }
+ 
+    // ── Delete human bbox ───────────────────────────────────────────────────
+    async function handleDeleteBbox(bboxId: string) {
+        if (!frame) return;
+        try {
+            await api.deleteBoundingBox(projectId, frame.id, bboxId);
+            setBoundingBoxes(prev => prev.filter(b => b.id !== bboxId));
+            if (activeBboxId === bboxId) setActiveBboxId(null);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+ 
+    // ── Approve machine detection ───────────────────────────────────────────
     async function handleApprove() {
         if (!activeDetectionId || !editLabel.trim()) return;
         setSaving(true);
@@ -764,221 +922,199 @@ function AnnotateReview({
             setSaving(false);
         }
     }
-
+ 
     function goToFrame(i: number) {
         setActiveFrameIndex(i);
         onFrameChange(i);
     }
+ 
     const activeDetection = detections.find(d => d.id === activeDetectionId);
-
+    const activeBbox = boundingBoxes.find(b => b.id === activeBboxId);
+ 
     return (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gridTemplateRows: "1fr 90px", height: "calc(100vh - 230px)", gap: 12, padding: "16px 24px" }}>
-
+ 
             {/* CANVAS VIEWER */}
             <div style={{ background: "#0a1628", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
                 <canvas
                     ref={canvasRef}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
                     onClick={handleCanvasClick}
-                    style={{ maxWidth: "100%", maxHeight: "100%", cursor: "crosshair" }}
+                    style={{ maxWidth: "100%", maxHeight: "100%", cursor: drawMode ? "crosshair" : "default" }}
                 />
-
+ 
                 {/* Back button */}
-                <button
-                    onClick={onBack}
-                    style={{ position: "absolute", top: 12, left: 12, padding: "6px 12px", borderRadius: 8, background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, backdropFilter: "blur(4px)", display: "flex", alignItems: "center", gap: 6 }}
-                >
+                <button onClick={onBack} style={{ position: "absolute", top: 12, left: 12, padding: "6px 12px", borderRadius: 8, background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, backdropFilter: "blur(4px)", display: "flex", alignItems: "center", gap: 6 }}>
                     ← All frames
                 </button>
-
+ 
+                {/* Draw mode badge */}
+                {drawMode && (
+                    <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(0,180,160,0.18)", border: "1px solid rgba(0,180,160,0.4)", color: "#00b4a0", fontSize: 12, fontWeight: 700, padding: "4px 14px", borderRadius: 20, letterSpacing: "0.05em" }}>
+                        DRAW MODE · drag to place box
+                    </div>
+                )}
+ 
+                {/* Species label popover */}
+                {pendingBox && (
+                    <div style={{ position: "absolute", top: pendingBox.y2 + 10, left: pendingBox.x1, background: "#0d1e30", border: "1px solid rgba(0,180,160,0.4)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minWidth: 220, zIndex: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Species label</div>
+                        <input
+                            autoFocus
+                            value={labelInput}
+                            onChange={e => setLabelInput(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === "Enter") handleSaveBbox();
+                                if (e.key === "Escape") { setPendingBox(null); setDrawMode(false); }
+                            }}
+                            placeholder="e.g. fish, hard coral…"
+                            style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 7, padding: "8px 10px", color: "#fff", fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                        />
+                        <div style={{ display: "flex", gap: 8 }}>
+                            <button onClick={handleSaveBbox} disabled={!labelInput.trim() || savingBbox}
+                                style={{ flex: 1, padding: "7px", borderRadius: 7, fontSize: 12, fontWeight: 700, background: "rgba(0,180,160,0.2)", border: "1px solid rgba(0,180,160,0.4)", color: "#00b4a0", cursor: "pointer", opacity: !labelInput.trim() || savingBbox ? 0.5 : 1 }}>
+                                {savingBbox ? "Saving…" : "✓ Save"}
+                            </button>
+                            <button onClick={() => { setPendingBox(null); setDrawMode(false); }}
+                                style={{ flex: 1, padding: "7px", borderRadius: 7, fontSize: 12, fontWeight: 700, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", cursor: "pointer" }}>
+                                ✕ Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
+ 
+                {/* Prev / Next */}
                 <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, alignItems: "center" }}>
-                    <button
-                        onClick={() => goToFrame(Math.max(0, activeFrameIndex - 1))}
-                        disabled={activeFrameIndex === 0}
-                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: activeFrameIndex === 0 ? 0.4 : 1 }}
-                    >← Prev</button>
+                    <button onClick={() => goToFrame(Math.max(0, activeFrameIndex - 1))} disabled={activeFrameIndex === 0}
+                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: activeFrameIndex === 0 ? 0.4 : 1 }}>
+                        ← Prev
+                    </button>
                     <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>
                         Photo {activeFrameIndex + 1} of {frames.length}
                     </span>
-                    <button
-                        onClick={() => goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1))}
-                        disabled={activeFrameIndex === frames.length - 1}
-                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600,
-                            opacity: activeFrameIndex === frames.length - 1 ? 0.4 : 1
-                        }}
-                    >Next →</button>
+                    <button onClick={() => goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1))} disabled={activeFrameIndex === frames.length - 1}
+                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: activeFrameIndex === frames.length - 1 ? 0.4 : 1 }}>
+                        Next →
+                    </button>
                 </div>
                 <div style={{ position: "absolute", bottom: 16, right: 16, fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: 500 }}>
-                    Click detection to select · or draw new bbox
+                    {drawMode ? "Drag to draw · ESC to cancel" : "Click detection to select · or draw new bbox"}
                 </div>
             </div>
-
+ 
             {/* SIDEBAR */}
-            <div style={{
-                background: "#0d1e30", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8, overflow: "hidden",
-            }}>
-                {/* Header */}
-                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, display: "flex", justifyContent: "space-between", flexShrink: 0, }}>
+            <div style={{ background: "#0d1e30", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8, overflow: "hidden" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
                     <span>Detections</span>
-                    <span style={{ color: "#3b9eff" }}>{detectionGroups.length} in photo</span>
+                    <span style={{ color: "#3b9eff" }}>{detectionGroups.length + boundingBoxes.length} in photo</span>
                 </div>
-
-                {/* Scrollable detection list */}
+ 
                 <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+ 
+                    {/* Machine detections */}
                     {loadingDets ? (
-                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textAlign: "center", paddingTop: 20 }}>
-                            Loading…
-                        </div>
+                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textAlign: "center", paddingTop: 20 }}>Loading…</div>
                     ) : detectionGroups.map(({ primary: d, overlapping }) => (
                         <div key={d.id}>
                             <div
-                                onClick={() => setActiveDetectionId(d.id === activeDetectionId ? null : d.id)}
-                                style={{
-                                    display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-                                    transition: "background 0.15s",
-                                    background: d.id === activeDetectionId ? "rgba(59,158,255,0.12)" : "transparent",
-                                    border: `1px solid ${d.id === activeDetectionId ? "rgba(59,158,255,0.3)" : "transparent"}`,
-                                }}
+                                onClick={() => { setActiveDetectionId(d.id === activeDetectionId ? null : d.id); setActiveBboxId(null); }}
+                                style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer", transition: "background 0.15s", background: d.id === activeDetectionId ? "rgba(59,158,255,0.12)" : "transparent", border: `1px solid ${d.id === activeDetectionId ? "rgba(59,158,255,0.3)" : "transparent"}` }}
                             >
-                                <div style={{
-                                    width: 10, height: 10, borderRadius: "50%",
-                                    background: labelColorMap.get(d.display_label || "Unknown") ?? "#888",
-                                    flexShrink: 0
-                                }} />
-                                <span style={{
-                                    flex: 1, fontSize: 13, color: "#fff",
-                                    fontWeight: d.id === activeDetectionId ? 600 : 400
-                                }}>
-                                    {d.display_label || "Unknown"}
-                                </span>
-                                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>
-                                    {Math.round((d.score ?? 0) * 100)}%
-                                </span>
+                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: labelColorMap.get(d.display_label || "Unknown") ?? "#888", flexShrink: 0 }} />
+                                <span style={{ flex: 1, fontSize: 13, color: "#fff", fontWeight: d.id === activeDetectionId ? 600 : 400 }}>{d.display_label || "Unknown"}</span>
+                                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>{Math.round((d.score ?? 0) * 100)}%</span>
                             </div>
-
                             {overlapping.map(alt => (
-                                <div key={alt.id} style={{
-                                    display: "flex", alignItems: "center", gap: 10,
-                                    padding: "5px 10px 5px 28px", opacity: 0.6
-                                }}>
-                                    <div style={{
-                                        width: 6, height: 6, borderRadius: "50%",
-                                        background: labelColorMap.get(alt.display_label || "Unknown") ?? "#888",
-                                        flexShrink: 0
-                                    }} />
+                                <div key={alt.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px 5px 28px", opacity: 0.6 }}>
+                                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: labelColorMap.get(alt.display_label || "Unknown") ?? "#888", flexShrink: 0 }} />
                                     <span style={{ flex: 1, fontSize: 12, color: "rgba(255,255,255,0.6)" }}>{alt.display_label || "Unknown"}</span>
                                     <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{Math.round((alt.score ?? 0) * 100)}%</span>
                                 </div>
                             ))}
                         </div>
                     ))}
-
-                    <button style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: "transparent", border: "1px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer", fontWeight: 600, textAlign: "left" }}>
-                        + Draw new bounding box
+ 
+                    {/* Human bboxes */}
+                    {loadingBboxes ? (
+                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, textAlign: "center" }}>Loading annotations…</div>
+                    ) : boundingBoxes.map(b => (
+                        <div key={b.id} onClick={() => { setActiveBboxId(b.id === activeBboxId ? null : b.id); setActiveDetectionId(null); }}
+                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer", transition: "background 0.15s", background: b.id === activeBboxId ? "rgba(0,180,160,0.12)" : "transparent", border: `1px solid ${b.id === activeBboxId ? "rgba(0,180,160,0.3)" : "rgba(0,180,160,0.1)"}` }}>
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", border: "2px dashed #00b4a0", flexShrink: 0 }} />
+                            <span style={{ flex: 1, fontSize: 13, color: "#fff", fontWeight: b.id === activeBboxId ? 600 : 400 }}>{b.display_label}</span>
+                            <span style={{ fontSize: 10, color: "#00b4a0", fontWeight: 700, marginRight: 4 }}>human</span>
+                            <button onClick={e => { e.stopPropagation(); handleDeleteBbox(b.id); }}
+                                style={{ background: "none", border: "none", color: "rgba(232,97,58,0.5)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                        </div>
+                    ))}
+ 
+                    {/* Draw new bbox button */}
+                    <button onClick={() => { setDrawMode(m => !m); setPendingBox(null); }}
+                        style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: drawMode ? "rgba(0,180,160,0.15)" : "transparent", border: drawMode ? "1px solid rgba(0,180,160,0.4)" : "1px dashed rgba(255,255,255,0.15)", color: drawMode ? "#00b4a0" : "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer", fontWeight: 700, textAlign: "left", transition: "all 0.15s" }}>
+                        {drawMode ? "✕ Cancel draw mode" : "+ Draw new bounding box"}
                     </button>
-
                 </div>
-
-
+ 
+                {/* Active machine detection panel */}
                 {activeDetection && (
-                    <div style={{
-                        borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12,
-                        display: "flex", flexDirection: "column", gap: 10,
-                        flexShrink: 0,
-                    }}>
-                        <div style={{
-                            fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)",
-                            textTransform: "uppercase", letterSpacing: "0.08em",
-                            display: "flex", justifyContent: "space-between", alignItems: "center"
-                        }}>
+                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <span>Edit Label</span>
-                            <span style={{
-                                background: activeDetection.status === "reviewed"
-                                    ? "rgba(0,180,160,0.15)" : "rgba(255,180,0,0.1)",
-                                color: activeDetection.status === "reviewed" ? "#00b4a0" : "#ffb400",
-                                border: `1px solid ${activeDetection.status === "reviewed" ? "rgba(0,180,160,0.3)" : "rgba(255,180,0,0.25)"}`,
-                                borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700
-                            }}>
+                            <span style={{ background: activeDetection.status === "reviewed" ? "rgba(0,180,160,0.15)" : "rgba(255,180,0,0.1)", color: activeDetection.status === "reviewed" ? "#00b4a0" : "#ffb400", border: `1px solid ${activeDetection.status === "reviewed" ? "rgba(0,180,160,0.3)" : "rgba(255,180,0,0.25)"}`, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>
                                 {activeDetection.status === "reviewed" ? "Reviewed" : "Needs review"}
                             </span>
                         </div>
-
-                        <div style={{
-                            background: "rgba(59,158,255,0.08)", border: "1px solid rgba(59,158,255,0.2)", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center"
-                        }}>
-                            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 500 }}>
-                                Original
-                            </span>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.7)" }}>
-                                {activeDetection.display_label || "Unknown"}</span>
+                        <div style={{ background: "rgba(59,158,255,0.08)", border: "1px solid rgba(59,158,255,0.2)", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 500 }}>Original</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.7)" }}>{activeDetection.display_label || "Unknown"}</span>
                         </div>
                         <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-                                New Label </div>
-                            <input
-                                type="text"
-                                value={editLabel}
-                                onChange={e => setEditLabel(e.target.value)}
-                                onKeyDown={e => { if (e.key === "Enter") handleApprove(); }}
-                                placeholder="e.g. fish, sea turtle..."
-                                style={{ width: "100%", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontWeight: 500, color: "#0d1f2d", outline: "none", boxSizing: "border-box" }}
-                            />
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>New Label</div>
+                            <input type="text" value={editLabel} onChange={e => setEditLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleApprove(); }} placeholder="e.g. fish, sea turtle..."
+                                style={{ width: "100%", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontWeight: 500, color: "#0d1f2d", outline: "none", boxSizing: "border-box" }} />
                         </div>
-
                         {saveError && (
-                            <div style={{
-                                fontSize: 12, color: "#e8613a",
-                                background: "rgba(232,97,58,0.1)",
-                                border: "1px solid rgba(232,97,58,0.25)",
-                                borderRadius: 6, padding: "6px 10px"
-                            }}>
-                                {saveError}
-                            </div>
+                            <div style={{ fontSize: 12, color: "#e8613a", background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", borderRadius: 6, padding: "6px 10px" }}>{saveError}</div>
                         )}
-
                         <div style={{ display: "flex", gap: 8 }}>
-                            <button
-                                onClick={handleApprove}
-                                disabled={saving || !editLabel.trim()}
-                                style={{
-                                    flex: 1, padding: "9px 8px", borderRadius: 8,
-                                    background: saving || !editLabel.trim()
-                                        ? "rgba(0,180,160,0.07)" : "rgba(0,180,160,0.15)",
-                                    border: "1px solid rgba(0,180,160,0.3)",
-                                    color: saving || !editLabel.trim() ? "rgba(0,180,160,0.4)" : "#00b4a0",
-                                    fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer",
-                                    transition: "all 0.15s"
-                                }}
-                            >
+                            <button onClick={handleApprove} disabled={saving || !editLabel.trim()}
+                                style={{ flex: 1, padding: "9px 8px", borderRadius: 8, background: saving || !editLabel.trim() ? "rgba(0,180,160,0.07)" : "rgba(0,180,160,0.15)", border: "1px solid rgba(0,180,160,0.3)", color: saving || !editLabel.trim() ? "rgba(0,180,160,0.4)" : "#00b4a0", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", transition: "all 0.15s" }}>
                                 {saving ? "Saving…" : "✓ Save"}
                             </button>
-                            <button
-                                onClick={() => setActiveDetectionId(null)}
-                                disabled={saving}
-                                style={{ flex: 1, padding: "9px 8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                            >
+                            <button onClick={() => setActiveDetectionId(null)} disabled={saving}
+                                style={{ flex: 1, padding: "9px 8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                                 ✕ Cancel
                             </button>
                         </div>
                     </div>
                 )}
+ 
+                {/* Active human bbox panel */}
+                {activeBbox && (
+                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Manual annotation</div>
+                        <div style={{ background: "rgba(0,180,160,0.1)", border: "1px solid rgba(0,180,160,0.2)", borderRadius: 8, padding: "8px 12px" }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{activeBbox.display_label}</span>
+                            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 3 }}>
+                                [{activeBbox.bbox.map(v => Math.round(v)).join(", ")}] px
+                            </div>
+                        </div>
+                        <button onClick={() => handleDeleteBbox(activeBbox.id)}
+                            style={{ width: "100%", padding: "8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                            🗑 Delete box
+                        </button>
+                    </div>
+                )}
             </div>
-
+ 
             {/* FILMSTRIP */}
             <div style={{ gridColumn: "1 / span 2", display: "flex", gap: 8, overflowX: "auto", alignItems: "center", paddingBottom: 4 }}>
                 {frames.map((f, i) => (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                        key={f.id}
-                        src={f.frame_url}
-                        alt={`Frame ${i + 1}`}
-                        onClick={() => goToFrame(i)}
-                        style={{
-                            height: 68, minWidth: 110, objectFit: "cover", borderRadius: 6, cursor: "pointer",
-                            opacity: i === activeFrameIndex ? 1 : 0.45,
-                            border: i === activeFrameIndex ? "2px solid #00b4a0" : "2px solid transparent",
-                            transition: "all 0.15s", flexShrink: 0
-                        }}
-                    />
+                    <img key={f.id} src={f.frame_url} alt={`Frame ${i + 1}`} onClick={() => goToFrame(i)}
+                        style={{ height: 68, minWidth: 110, objectFit: "cover", borderRadius: 6, cursor: "pointer", opacity: i === activeFrameIndex ? 1 : 0.45, border: i === activeFrameIndex ? "2px solid #00b4a0" : "2px solid transparent", transition: "all 0.15s", flexShrink: 0 }} />
                 ))}
             </div>
         </div>
