@@ -4,47 +4,14 @@
 
 @layer base {
   html {
-    background-color: #ffffff;
-    /* ← force override Tailwind base */
+    background-color: #0b1220;
   }
-}
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-
-  /* very dark navy blue for buttons or headings */
-  --ink: #0d1f2d;
-  /* medium slate for secondary text */
-  --slate: #4a6880;
-  /* For text that is not so important */
-  --mist: #8dadc2;
-  /* Light background color */
-  --pale: #e8f2f8;
-  /* Ocean blue for primary actions */
-  --ocean: #006d9e;
-  /* Light ocean blue (if needed) */
-  --ocean-lt: #0090cc;
-  /* Teal for accents */
-  --teal: #00b4a0;
-  /* Coral for warnings or errors */
-  --coral: #e8613a;
-  /* Border color */
-  --border: rgba(0, 90, 140, 0.13);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background-color: #0b1220;
+    color: #f1f5f9;
+    font-family: var(--font-inter), Inter, sans-serif;
+    overflow-x: hidden;
   }
-}
-
-body {
-  color: var(--foreground);
-  background: #ffffff;
-  font-family: Arial, Helvetica, sans-serif;
-  overflow-x: hidden;
 }
 
 @layer utilities {

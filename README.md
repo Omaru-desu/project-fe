@@ -11,7 +11,7 @@ s4905768@student.uq.edu.au
 First, run the development server:
 
 ```bash
-npm run dev
+npm run devp
 # or
 yarn dev
 # or

@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Trash2, Layers, Clock } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { Project, ProjectType } from '../../types/project';
 import { useRouter } from 'next/navigation';
 
@@ -10,69 +10,93 @@ interface ProjectCardProps {
     onDeleteAction: (project: Project) => void;
 }
 
-const TYPE_STYLES: Record<ProjectType, { bg: string; text: string; label: string }> = {
-    active: { bg: 'bg-[rgba(0,180,160,0.15)]', text: 'text-[#00b4a0]', label: 'Active' },
-    test: { bg: 'bg-[rgba(139,92,246,0.15)]', text: 'text-[#a78bfa]', label: 'Test' },
+const THUMB_STYLE: Record<ProjectType, string> = {
+    active: 'repeating-linear-gradient(135deg, #1a3a5c 0 8px, #122e4a 8px 16px)',
+    test:   'repeating-linear-gradient(135deg, #2a1f4a 0 8px, #1d1538 8px 16px)',
 };
 
+const TYPE_BADGE: Record<ProjectType, { dot: string; label: string; text: string }> = {
+    active: { dot: 'bg-[#22d3ee]', label: 'Active', text: 'text-[#22d3ee]' },
+    test:   { dot: 'bg-[#a78bfa]', label: 'Test',   text: 'text-[#a78bfa]' },
+};
+
+const CROSSHAIRS = [
+    { left: '16%', top: '36%', width: 22, height: 18 },
+    { left: '54%', top: '54%', width: 32, height: 20 },
+    { left: '71%', top: '26%', width: 18, height: 22 },
+];
+
 function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-    });
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatCount(n: number): string {
+    if (n >= 10000) return Math.round(n / 1000) + 'k';
+    if (n >= 1000)  return (n / 1000).toFixed(1) + 'k';
+    return String(n);
 }
 
 export default function ProjectCard({ project, onEditAction, onDeleteAction }: ProjectCardProps) {
-    const type = TYPE_STYLES[project.type];
+    const badge = TYPE_BADGE[project.type];
     const router = useRouter();
 
     return (
+        <div
+            onClick={() => router.push(`/projects/${project.id}`)}
+            className="group bg-bg-surface border border-border-default hover:border-border-hover rounded-[10px] overflow-hidden cursor-pointer transition-all duration-150 hover:-translate-y-px flex flex-col"
+        >
+            {/* Thumbnail */}
+            <div className="relative h-[130px] shrink-0" style={{ background: THUMB_STYLE[project.type] }}>
+                {/* Type badge */}
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-[4px]">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.dot}`} />
+                    <span className={`text-[10px] font-medium uppercase tracking-widest ${badge.text}`}>
+                        {badge.label}
+                    </span>
+                </div>
 
-        <div onClick={() => router.push(`/projects/${project.id}`)} className="group relative bg-[#0d1f2d] border border-[rgba(0,180,160,0.08)] rounded-2xl p-6 flex flex-col gap-4 transition-all duration-200 hover:border-[rgba(0,180,160,0.35)] hover:shadow-[0_4px_24px_rgba(0,180,160,0.1)]">
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                    <h3
-                        className="text-[1.05rem] font-bold text-[#e8f2f8] leading-snug truncate"
-                        style={{ fontFamily: "'Playfair Display', serif" }}
-                    >
-                        {project.name}
-                    </h3>
-                </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 shrink-0">
+                {/* Actions */}
+                <div className="absolute top-2 right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
-                        onClick={(e) => { e.stopPropagation(); onEditAction(project); }}
+                        onClick={e => { e.stopPropagation(); onEditAction(project); }}
                         aria-label="Edit project"
-                        className="p-1.5 rounded-lg text-[#8dadc2] hover:text-[#00b4a0] hover:bg-[rgba(0,180,160,0.1)] transition-colors duration-150"
+                        className="p-1.5 rounded-[5px] bg-black/50 backdrop-blur-sm text-white/60 hover:text-white hover:bg-black/70 transition-colors duration-150"
                     >
-                        <Pencil size={15} />
+                        <Pencil size={12} />
                     </button>
                     <button
-                        onClick={(e) => { e.stopPropagation(); onDeleteAction(project); }}
+                        onClick={e => { e.stopPropagation(); onDeleteAction(project); }}
                         aria-label="Delete project"
-                        className="p-1.5 rounded-lg text-[#8dadc2] hover:text-[#e8613a] hover:bg-[rgba(232,97,58,0.1)] transition-colors duration-150"
+                        className="p-1.5 rounded-[5px] bg-black/50 backdrop-blur-sm text-white/60 hover:text-coral hover:bg-black/70 transition-colors duration-150"
                     >
-                        <Trash2 size={15} />
+                        <Trash2 size={12} />
                     </button>
                 </div>
+
+                {/* Decorative crosshairs */}
+                {CROSSHAIRS.map((c, i) => (
+                    <span
+                        key={i}
+                        className="absolute border border-dashed border-accent-blue/30 rounded-[2px] pointer-events-none"
+                        style={{ left: c.left, top: c.top, width: c.width, height: c.height }}
+                    />
+                ))}
             </div>
 
-            <span className={`inline-flex items-center self-start px-2.5 py-0.5 rounded-full text-[0.72rem] font-semibold tracking-wide uppercase ${type.bg} ${type.text}`}>
-                {type.label}
-            </span>
-
-            <p className="text-[0.83rem] text-[#8dadc2] leading-relaxed line-clamp-2 flex-1">
-                {project.description || <span className="italic opacity-60">No description</span>}
-            </p>
-            <div className="flex items-center justify-between pt-3 border-t border-[rgba(0,180,160,0.06)] text-[0.75rem] text-[#4a6880]">
-                <span className="flex items-center gap-1.5">
-                    <Layers size={12} className="shrink-0" />
-                    {project.frame_count.toLocaleString()} frames
-                </span>
-                <span className="flex items-center gap-1.5">
-                    <Clock size={12} className="shrink-0" />
-                    {formatDate(project.created_at)}
-                </span>
+            {/* Body */}
+            <div className="flex flex-col gap-1.5 p-3.5 flex-1">
+                <h3 className="text-[13.5px] font-medium text-text-primary leading-snug truncate">
+                    {project.name}
+                </h3>
+                <div className="flex items-center gap-1.5 text-[11.5px] font-mono">
+                    <span className="text-text-secondary">{formatCount(project.frame_count)}</span>
+                    <span className="text-text-muted">frames</span>
+                    <span className="text-border-hover">·</span>
+                    <span className="text-text-muted">{formatDate(project.created_at)}</span>
+                </div>
+                <p className={`text-[12px] text-text-muted line-clamp-2 leading-relaxed mt-0.5 ${!project.description ? 'italic opacity-50' : ''}`}>
+                    {project.description || 'No description'}
+                </p>
             </div>
         </div>
     );

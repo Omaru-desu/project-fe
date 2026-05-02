@@ -57,34 +57,31 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
     };
 
     const inputClass =
-        'w-full bg-[#0a1628] border border-[rgba(0,180,160,0.2)] text-[#e8f2f8] placeholder-[#4a6880] rounded-xl px-4 py-3 text-[0.88rem] outline-none transition-all duration-150 focus:border-[#00b4a0] focus:shadow-[0_0_0_3px_rgba(0,180,160,0.12)]';
+        'w-full bg-bg-primary border border-border-default text-text-secondary placeholder-text-muted rounded-lg px-4 py-2.5 text-[13px] outline-none transition-all duration-150 focus:border-accent-blue';
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
             onClick={(e) => { if (e.target === e.currentTarget) onCloseAction(); }}
         >
-            <div className="bg-[#0d1f2d] border border-[rgba(0,180,160,0.15)] rounded-2xl p-8 w-full max-w-lg shadow-[0_8px_48px_rgba(0,0,0,0.5)]">
-                <div className="flex items-center justify-between mb-6">
-                    <h2
-                        className="text-[1.2rem] font-black text-[#e8f2f8]"
-                        style={{ fontFamily: "'Playfair Display', serif" }}
-                    >
-                        {mode === 'create' ? 'New Project' : 'Edit Project'}
+            <div className="bg-bg-surface border border-border-default rounded-[10px] p-6 w-full max-w-lg">
+                <div className="flex items-center justify-between mb-5">
+                    <h2 className="text-[15px] font-semibold text-text-primary">
+                        {mode === 'create' ? 'New project' : 'Edit project'}
                     </h2>
                     <button
                         onClick={onCloseAction}
-                        className="p-1.5 rounded-lg text-[#8dadc2] hover:text-[#e8f2f8] hover:bg-[rgba(255,255,255,0.07)] transition-colors duration-150"
+                        className="p-1.5 rounded-[6px] text-text-muted hover:text-text-secondary hover:bg-border-default transition-colors duration-150"
                         aria-label="Close"
                     >
-                        <X size={18} />
+                        <X size={16} />
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+                <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
                     <div>
-                        <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
-                            Name <span className="text-[#e8613a]">*</span>
+                        <label className="block text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
+                            Name <span className="text-coral">*</span>
                         </label>
                         <input
                             type="text"
@@ -94,12 +91,12 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
                             className={inputClass}
                         />
                         {nameError && (
-                            <p className="mt-1.5 text-[0.75rem] text-[#e8613a]">{nameError}</p>
+                            <p className="mt-1.5 text-[12px] text-coral">{nameError}</p>
                         )}
                     </div>
 
                     <div>
-                        <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
+                        <label className="block text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
                             Description
                         </label>
                         <textarea
@@ -113,7 +110,7 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
 
                     {mode === 'create' && (
                         <div>
-                            <label className="block text-[0.73rem] font-semibold uppercase tracking-wider text-[#8dadc2] mb-2">
+                            <label className="block text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
                                 Project Type
                             </label>
                             <select
@@ -126,42 +123,40 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
                             </select>
 
                             {type === 'test' && (
-                                <div className="flex gap-3 mt-3 px-4 py-3 rounded-xl bg-[rgba(234,179,8,0.08)] border border-[rgba(234,179,8,0.25)]">
-                                    <TriangleAlert size={16} className="text-[#eab308] shrink-0 mt-0.5" />
-                                    <p className="text-[0.8rem] text-[#fde68a] leading-relaxed">
-                                        <span className="font-semibold">Test projects are temporary.</span> All frames and
-                                        associated data will be automatically deleted after{' '}
-                                        <span className="font-semibold">{TEST_RETENTION_DAYS} days</span>. Use an Active
-                                        project to retain data permanently.
+                                <div className="flex gap-3 mt-3 px-3 py-2.5 rounded-[6px] bg-yellow-500/[0.08] border border-yellow-500/25">
+                                    <TriangleAlert size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+                                    <p className="text-[12px] text-yellow-200 leading-relaxed">
+                                        <span className="font-semibold">Test projects are temporary.</span> All data will be deleted after{' '}
+                                        <span className="font-semibold">{TEST_RETENTION_DAYS} days</span>.
                                     </p>
                                 </div>
                             )}
                         </div>
                     )}
 
-                    <div className="flex items-center gap-3 pt-2">
+                    <div className="flex items-center gap-2.5 pt-1">
                         <button
                             type="button"
                             onClick={onCloseAction}
-                            className="flex-1 py-3 rounded-xl border border-[rgba(0,180,160,0.2)] text-[#8dadc2] text-[0.88rem] font-semibold hover:border-[rgba(0,180,160,0.4)] hover:text-[#e8f2f8] transition-all duration-150"
+                            className="flex-1 py-2 rounded-lg border border-border-default text-text-muted text-[13px] font-medium hover:border-border-hover hover:text-text-secondary transition-all duration-150"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={isSubmitting}
-                            className="flex-1 py-3 rounded-xl bg-gradient-to-br from-[#006d9e] to-[#00b4a0] text-white text-[0.88rem] font-bold transition-all duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="flex-1 py-2 rounded-lg bg-accent-blue hover:bg-accent-blue-hover text-white text-[13px] font-medium transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                             {isSubmitting ? (
                                 <>
-                                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                                     </svg>
                                     Saving…
                                 </>
                             ) : (
-                                mode === 'create' ? 'Create Project' : 'Save Changes'
+                                mode === 'create' ? 'Create project' : 'Save changes'
                             )}
                         </button>
                     </div>
