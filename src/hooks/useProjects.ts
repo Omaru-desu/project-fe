@@ -27,18 +27,31 @@ export function useProjects() {
     }, [fetchProjects]);
 
     const createProject = async (data: CreateProjectInput) => {
-        await api.createProject(data);
-        await fetchProjects();
+        const created = await api.createProject(data);
+        setProjects(prev => [created, ...prev]);
     };
 
     const updateProject = async (id: string, data: UpdateProjectInput) => {
-        await api.updateProject(id, data);
-        await fetchProjects();
+        const snapshot = projects;
+        setProjects(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+        try {
+            const updated = await api.updateProject(id, data);
+            setProjects(prev => prev.map(p => p.id === id ? { ...updated, frame_count: p.frame_count } : p));
+        } catch (e) {
+            setProjects(snapshot);
+            throw e;
+        }
     };
 
     const deleteProject = async (id: string) => {
-        await api.deleteProject(id);
-        await fetchProjects();
+        const snapshot = projects;
+        setProjects(prev => prev.filter(p => p.id !== id));
+        try {
+            await api.deleteProject(id);
+        } catch (e) {
+            setProjects(snapshot);
+            throw e;
+        }
     };
 
     return {
