@@ -1,30 +1,37 @@
 import React from "react";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { DM_Sans, DM_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "../components/Navbar";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+const dmSans = DM_Sans({
+    subsets: ["latin"],
+    weight: ["300", "400", "500", "600", "700"],
+    variable: "--font-dm-sans",
+});
+
+const dmMono = DM_Mono({
+    subsets: ["latin"],
+    weight: ["400", "500"],
+    variable: "--font-dm-mono",
 });
 
 export const metadata: Metadata = {
-  title: "omarine",
-  description: "AI-powered annotation for underwater transect imagery",
+    title: "OMarine",
+    description: "AI underwater annotation platform",
 };
 
 export default function RootLayout({
-  children,
+    children,
 }: Readonly<{
-  children: React.ReactNode;
+    children: React.ReactNode;
 }>) {
-  return (
-    <html lang="en">
-      <body className={`${inter.variable} font-inter antialiased`}>
-        <Navbar />
-        {children}
-      </body>
-    </html>
-  );
+    return (
+        <html lang="en">
+            <body className={`${dmSans.variable} ${dmMono.variable} font-sans antialiased`}>
+                <Navbar />
+                {children}
+            </body>
+        </html>
+    );
 }

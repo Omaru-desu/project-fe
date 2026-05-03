@@ -1,19 +1,56 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { Fish, LogOut } from "lucide-react";
+import { logout } from "../app/login/actions";
 
-const HIDDEN_ON = ["/", "/login", "/dashboard"];
+const HIDDEN_PREFIXES = ["/login", "/projects/"];
+const HIDDEN_EXACT = ["/"];
 
 export default function Navbar() {
-  const pathname = usePathname();
+    const pathname = usePathname();
+    const router = useRouter();
 
-  if (HIDDEN_ON.includes(pathname)) return null;
+    if (HIDDEN_EXACT.includes(pathname)) return null;
+    if (HIDDEN_PREFIXES.some(p => pathname.startsWith(p) && pathname !== "/projects")) return null;
 
-  return (
-    <nav className="w-full h-14 bg-bg-surface border-b border-border-default flex items-center px-6 sticky top-0 z-50">
-      <span className="text-[14px] font-semibold text-text-primary">
-        Omarine
-      </span>
-    </nav>
-  );
+    const goToProjects = () => router.push("/projects");
+
+    return (
+        <nav
+            className="w-full flex items-center justify-between bg-surface border-b border-border px-7"
+            style={{ height: 58 }}
+        >
+            <button
+                onClick={goToProjects}
+                className="flex items-center gap-2.5 cursor-pointer bg-transparent border-none p-0"
+            >
+                <span
+                    className="flex items-center justify-center"
+                    style={{ width: 30, height: 30, borderRadius: 8, background: "var(--primary)" }}
+                >
+                    <Fish size={16} color="#fff" />
+                </span>
+                <span className="text-[15px] font-bold tracking-tight text-text1">OMarine</span>
+            </button>
+
+            <div className="flex items-center gap-2.5">
+                <form action={logout}>
+                    <button
+                        type="submit"
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] text-text2 border border-border bg-surface hover:bg-surface2 transition-colors"
+                    >
+                        <LogOut size={13} />
+                        Log out
+                    </button>
+                </form>
+                <span
+                    className="flex items-center justify-center text-[12px] font-bold text-white"
+                    style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--primary)" }}
+                >
+                    JL
+                </span>
+            </div>
+        </nav>
+    );
 }

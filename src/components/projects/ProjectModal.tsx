@@ -1,42 +1,61 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { X, TriangleAlert } from 'lucide-react';
-import { Project, ProjectType, CreateProjectInput, UpdateProjectInput } from '../../types/project';
+import { useState, useEffect } from "react";
+import { X } from "lucide-react";
+import {
+    Project,
+    ProjectType,
+    CreateProjectInput,
+    UpdateProjectInput,
+} from "../../types/project";
 
 interface ProjectModalProps {
-    mode: 'create' | 'edit';
+    mode: "create" | "edit";
     project?: Project;
     onCloseAction: () => void;
     onSubmitAction: (data: CreateProjectInput | UpdateProjectInput) => Promise<void>;
 }
 
-const TEST_RETENTION_DAYS = 90;
+const TYPE_OPTIONS: {
+    value: ProjectType;
+    label: string;
+    sub: string;
+    dot: string;
+}[] = [
+    { value: "test", label: "Test", sub: "Explore & experiment", dot: "var(--warning)" },
+    { value: "active", label: "Active", sub: "Production annotation", dot: "var(--success)" },
+];
 
-export default function ProjectModal({ mode, project, onCloseAction, onSubmitAction }: ProjectModalProps) {
-    const [name, setName] = useState('');
-    const [description, setDescription] = useState('');
-    const [type, setType] = useState<ProjectType>('active');
-    const [nameError, setNameError] = useState('');
+export default function ProjectModal({
+    mode,
+    project,
+    onCloseAction,
+    onSubmitAction,
+}: ProjectModalProps) {
+    const [name, setName] = useState("");
+    const [description, setDescription] = useState("");
+    const [type, setType] = useState<ProjectType>("test");
+    const [nameError, setNameError] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
-        if (mode === 'edit' && project) {
+        if (mode === "edit" && project) {
             setName(project.name);
             setDescription(project.description);
+            setType(project.type);
         }
     }, [mode, project]);
 
     const validate = (): boolean => {
         if (!name.trim()) {
-            setNameError('Name is required.');
+            setNameError("Name is required.");
             return false;
         }
         if (name.trim().length < 3) {
-            setNameError('Name must be at least 3 characters.');
+            setNameError("Name must be at least 3 characters.");
             return false;
         }
-        setNameError('');
+        setNameError("");
         return true;
     };
 
@@ -45,119 +64,240 @@ export default function ProjectModal({ mode, project, onCloseAction, onSubmitAct
         if (!validate()) return;
         setIsSubmitting(true);
         try {
-            if (mode === 'create') {
-                await onSubmitAction({ name: name.trim(), description: description.trim(), type });
-            } else {
-                await onSubmitAction({ name: name.trim(), description: description.trim() });
-            }
+            const payload = {
+                name: name.trim(),
+                description: description.trim(),
+                type,
+            };
+            await onSubmitAction(payload);
             onCloseAction();
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const inputClass =
-        'w-full bg-bg-primary border border-border-default text-text-secondary placeholder-text-muted rounded-lg px-4 py-2.5 text-[13px] outline-none transition-all duration-150 focus:border-accent-blue';
-
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
-            onClick={(e) => { if (e.target === e.currentTarget) onCloseAction(); }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{
+                background: "rgba(20,30,60,0.5)",
+                backdropFilter: "blur(4px)",
+            }}
+            onClick={e => {
+                if (e.target === e.currentTarget) onCloseAction();
+            }}
         >
-            <div className="bg-bg-surface border border-border-default rounded-[10px] p-6 w-full max-w-lg">
-                <div className="flex items-center justify-between mb-5">
-                    <h2 className="text-[15px] font-semibold text-text-primary">
-                        {mode === 'create' ? 'New project' : 'Edit project'}
+            <div
+                style={{
+                    background: "var(--surface)",
+                    borderRadius: 18,
+                    padding: 30,
+                    width: 460,
+                    maxWidth: "calc(100vw - 32px)",
+                    boxShadow: "0 20px 60px rgba(20,30,60,0.2)",
+                    border: "1px solid var(--border)",
+                }}
+            >
+                <div
+                    className="flex items-center justify-between"
+                    style={{ marginBottom: 22 }}
+                >
+                    <h2
+                        style={{
+                            fontSize: 17,
+                            fontWeight: 800,
+                            color: "var(--text1)",
+                            letterSpacing: "-0.02em",
+                        }}
+                    >
+                        {mode === "create" ? "New Project" : "Edit Project"}
                     </h2>
                     <button
                         onClick={onCloseAction}
-                        className="p-1.5 rounded-[6px] text-text-muted hover:text-text-secondary hover:bg-border-default transition-colors duration-150"
                         aria-label="Close"
+                        className="flex items-center justify-center"
+                        style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 7,
+                            border: "1.5px solid var(--border)",
+                            background: "var(--surface)",
+                            cursor: "pointer",
+                        }}
                     >
-                        <X size={16} />
+                        <X size={14} color="var(--text3)" />
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-                    <div>
-                        <label className="block text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
-                            Name <span className="text-coral">*</span>
+                <form onSubmit={handleSubmit} noValidate className="flex flex-col" style={{ gap: 14 }}>
+                    {/* Name */}
+                    <div className="flex flex-col" style={{ gap: 5 }}>
+                        <label
+                            style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)" }}
+                        >
+                            Project name
                         </label>
                         <input
                             type="text"
                             value={name}
-                            onChange={(e) => { setName(e.target.value); if (nameError) setNameError(''); }}
-                            placeholder="e.g. Great Barrier Reef Survey"
-                            className={inputClass}
+                            onChange={e => {
+                                setName(e.target.value);
+                                if (nameError) setNameError("");
+                            }}
+                            placeholder="e.g. GBR Coral Survey 2026"
+                            style={{
+                                padding: "10px 12px",
+                                borderRadius: 9,
+                                border: "1.5px solid var(--border)",
+                                fontFamily: "inherit",
+                                fontSize: 14,
+                                color: "var(--text1)",
+                                background: "var(--surface)",
+                                outline: "none",
+                            }}
+                            onFocus={e => (e.currentTarget.style.borderColor = "var(--primary)")}
+                            onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
                         />
                         {nameError && (
-                            <p className="mt-1.5 text-[12px] text-coral">{nameError}</p>
+                            <p style={{ fontSize: 12, color: "var(--danger)", marginTop: 2 }}>
+                                {nameError}
+                            </p>
                         )}
                     </div>
 
-                    <div>
-                        <label className="block text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
+                    {/* Description */}
+                    <div className="flex flex-col" style={{ gap: 5 }}>
+                        <label
+                            style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)" }}
+                        >
                             Description
                         </label>
                         <textarea
                             value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            placeholder="Optional — describe the scope or goals of this project"
+                            onChange={e => setDescription(e.target.value)}
+                            placeholder="Scope, location, objectives…"
                             rows={3}
-                            className={`${inputClass} resize-none`}
+                            style={{
+                                padding: "9px 11px",
+                                borderRadius: 8,
+                                border: "1.5px solid var(--border)",
+                                fontFamily: "inherit",
+                                fontSize: 13,
+                                color: "var(--text1)",
+                                background: "var(--surface)",
+                                outline: "none",
+                                resize: "vertical",
+                                lineHeight: 1.5,
+                            }}
+                            onFocus={e => (e.currentTarget.style.borderColor = "var(--primary)")}
+                            onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
                         />
                     </div>
 
-                    {mode === 'create' && (
-                        <div>
-                            <label className="block text-[11px] font-medium text-text-muted mb-1.5 uppercase tracking-wider">
-                                Project Type
-                            </label>
-                            <select
-                                value={type}
-                                onChange={(e) => setType(e.target.value as ProjectType)}
-                                className={`${inputClass} cursor-pointer`}
-                            >
-                                <option value="active">Active</option>
-                                <option value="test">Test</option>
-                            </select>
-
-                            {type === 'test' && (
-                                <div className="flex gap-3 mt-3 px-3 py-2.5 rounded-[6px] bg-yellow-500/[0.08] border border-yellow-500/25">
-                                    <TriangleAlert size={14} className="text-yellow-400 shrink-0 mt-0.5" />
-                                    <p className="text-[12px] text-yellow-200 leading-relaxed">
-                                        <span className="font-semibold">Test projects are temporary.</span> All data will be deleted after{' '}
-                                        <span className="font-semibold">{TEST_RETENTION_DAYS} days</span>.
-                                    </p>
-                                </div>
-                            )}
+                    {/* Status / type */}
+                    <div className="flex flex-col" style={{ gap: 5 }}>
+                        <label
+                            style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)" }}
+                        >
+                            Status
+                        </label>
+                        <div className="flex" style={{ gap: 10 }}>
+                            {TYPE_OPTIONS.map(opt => {
+                                const active = type === opt.value;
+                                return (
+                                    <div
+                                        key={opt.value}
+                                        onClick={() => setType(opt.value)}
+                                        style={{
+                                            flex: 1,
+                                            padding: "11px 13px",
+                                            borderRadius: 9,
+                                            border: `2px solid ${active ? "var(--primary)" : "var(--border)"}`,
+                                            background: active ? "var(--primary-pale)" : "var(--surface2)",
+                                            cursor: "pointer",
+                                            transition: "all 0.15s",
+                                        }}
+                                    >
+                                        <div
+                                            className="flex items-center"
+                                            style={{ gap: 7, marginBottom: 2 }}
+                                        >
+                                            <span
+                                                style={{
+                                                    width: 8,
+                                                    height: 8,
+                                                    borderRadius: "50%",
+                                                    background: opt.dot,
+                                                }}
+                                            />
+                                            <span
+                                                style={{
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    color: active
+                                                        ? "var(--primary-dark)"
+                                                        : "var(--text1)",
+                                                }}
+                                            >
+                                                {opt.label}
+                                            </span>
+                                        </div>
+                                        <div
+                                            style={{
+                                                fontSize: 11,
+                                                color: "var(--text3)",
+                                                paddingLeft: 15,
+                                            }}
+                                        >
+                                            {opt.sub}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
-                    )}
+                    </div>
 
-                    <div className="flex items-center gap-2.5 pt-1">
+                    <div
+                        className="flex justify-end"
+                        style={{ gap: 8, marginTop: 10 }}
+                    >
                         <button
                             type="button"
                             onClick={onCloseAction}
-                            className="flex-1 py-2 rounded-lg border border-border-default text-text-muted text-[13px] font-medium hover:border-border-hover hover:text-text-secondary transition-all duration-150"
+                            style={{
+                                padding: "9px 18px",
+                                borderRadius: 8,
+                                border: "1.5px solid var(--border)",
+                                background: "var(--surface)",
+                                fontSize: 13,
+                                cursor: "pointer",
+                                fontFamily: "inherit",
+                                color: "var(--text2)",
+                                fontWeight: 500,
+                            }}
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={isSubmitting}
-                            className="flex-1 py-2 rounded-lg bg-accent-blue hover:bg-accent-blue-hover text-white text-[13px] font-medium transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            style={{
+                                padding: "9px 22px",
+                                borderRadius: 8,
+                                border: "none",
+                                background: isSubmitting ? "var(--primary-light)" : "var(--primary)",
+                                color: "#fff",
+                                fontSize: 13,
+                                cursor: isSubmitting ? "wait" : "pointer",
+                                fontFamily: "inherit",
+                                fontWeight: 700,
+                            }}
                         >
-                            {isSubmitting ? (
-                                <>
-                                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                    </svg>
-                                    Saving…
-                                </>
-                            ) : (
-                                mode === 'create' ? 'Create project' : 'Save changes'
-                            )}
+                            {isSubmitting
+                                ? "Saving…"
+                                : mode === "create"
+                                    ? "Create project"
+                                    : "Save changes"}
                         </button>
                     </div>
                 </form>

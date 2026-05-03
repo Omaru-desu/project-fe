@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
-import { Project } from '../../types/project';
+import { useState } from "react";
+import { Trash2 } from "lucide-react";
+import { Project } from "../../types/project";
 
 interface DeleteConfirmModalProps {
     project: Project;
@@ -10,7 +10,11 @@ interface DeleteConfirmModalProps {
     onConfirmAction: () => Promise<void>;
 }
 
-export default function DeleteConfirmModal({ project, onCloseAction, onConfirmAction }: DeleteConfirmModalProps) {
+export default function DeleteConfirmModal({
+    project,
+    onCloseAction,
+    onConfirmAction,
+}: DeleteConfirmModalProps) {
     const [isDeleting, setIsDeleting] = useState(false);
 
     const handleConfirm = async () => {
@@ -25,57 +29,96 @@ export default function DeleteConfirmModal({ project, onCloseAction, onConfirmAc
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
-            onClick={(e) => { if (e.target === e.currentTarget) onCloseAction(); }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{
+                background: "rgba(20,30,60,0.5)",
+                backdropFilter: "blur(4px)",
+            }}
+            onClick={e => {
+                if (e.target === e.currentTarget) onCloseAction();
+            }}
         >
-            <div className="bg-bg-surface border border-border-default rounded-[10px] p-6 w-full max-w-md">
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2.5">
-                        <div className="p-1.5 rounded-[6px] bg-coral/10">
-                            <AlertTriangle size={15} className="text-coral" />
-                        </div>
-                        <h2 className="text-[15px] font-semibold text-text-primary">
-                            Delete project
-                        </h2>
-                    </div>
-                    <button
-                        onClick={onCloseAction}
-                        className="p-1.5 rounded-[6px] text-text-muted hover:text-text-secondary hover:bg-border-default transition-colors duration-150"
-                        aria-label="Close"
-                    >
-                        <X size={16} />
-                    </button>
+            <div
+                className="text-center"
+                style={{
+                    background: "var(--surface)",
+                    borderRadius: 18,
+                    padding: 30,
+                    width: 380,
+                    maxWidth: "calc(100vw - 32px)",
+                    boxShadow: "0 20px 60px rgba(20,30,60,0.2)",
+                    border: "1px solid var(--border)",
+                }}
+            >
+                <div
+                    className="flex items-center justify-center"
+                    style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: "50%",
+                        background: "#fff0f0",
+                        border: "2px solid #ffd0d0",
+                        margin: "0 auto 14px",
+                    }}
+                >
+                    <Trash2 size={20} color="var(--danger)" />
                 </div>
-
-                <p className="text-[13px] text-text-muted leading-relaxed mb-5">
-                    This will permanently delete{' '}
-                    <span className="font-semibold text-text-secondary">{project.name}</span>{' '}
-                    and all associated data. This action cannot be undone.
-                </p>
-
-                <div className="flex items-center gap-2.5">
+                <div
+                    style={{
+                        fontSize: 17,
+                        fontWeight: 800,
+                        color: "var(--text1)",
+                        marginBottom: 6,
+                    }}
+                >
+                    Delete project?
+                </div>
+                <div
+                    style={{
+                        fontSize: 13,
+                        color: "var(--text3)",
+                        marginBottom: 22,
+                        lineHeight: 1.6,
+                    }}
+                >
+                    <strong style={{ color: "var(--text1)" }}>{project.name}</strong> and
+                    all annotations will be permanently deleted.
+                </div>
+                <div className="flex justify-center" style={{ gap: 8 }}>
                     <button
                         onClick={onCloseAction}
-                        className="flex-1 py-2 rounded-lg border border-border-default text-text-muted text-[13px] font-medium hover:border-border-hover hover:text-text-secondary transition-all duration-150"
+                        disabled={isDeleting}
+                        style={{
+                            padding: "9px 20px",
+                            borderRadius: 8,
+                            border: "1.5px solid var(--border)",
+                            background: "var(--surface)",
+                            fontSize: 13,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            color: "var(--text2)",
+                            fontWeight: 500,
+                        }}
                     >
                         Cancel
                     </button>
                     <button
                         onClick={handleConfirm}
                         disabled={isDeleting}
-                        className="flex-1 py-2 rounded-lg bg-coral hover:bg-coral/80 text-white text-[13px] font-medium transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        style={{
+                            padding: "9px 20px",
+                            borderRadius: 8,
+                            border: "none",
+                            background: "var(--danger)",
+                            color: "#fff",
+                            fontSize: 13,
+                            cursor: isDeleting ? "wait" : "pointer",
+                            fontFamily: "inherit",
+                            fontWeight: 700,
+                            opacity: isDeleting ? 0.7 : 1,
+                        }}
                     >
-                        {isDeleting ? (
-                            <>
-                                <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                </svg>
-                                Deleting…
-                            </>
-                        ) : (
-                            'Delete'
-                        )}
+                        {isDeleting ? "Deleting…" : "Delete permanently"}
                     </button>
                 </div>
             </div>

@@ -2,20 +2,69 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --surface2: #f9fafd;
+  --border: #e8ecf5;
+
+  --primary: #839bce;
+  --primary-dark: #4a6fc4;
+  --primary-light: #d6e4f8;
+  --primary-pale: #f0f5fd;
+
+  --navy: #2e4a80;
+  --teal: #5ecece;
+  --coral: #f5957f;
+
+  --text1: #232a45;
+  --text2: #5a638a;
+  --text3: #9aa2c0;
+
+  --success: #5ec99a;
+  --warning: #f5bc62;
+  --danger: #f07070;
+
+  --shadow-sm: 0 1px 4px rgba(46, 74, 128, 0.06);
+  --shadow-md: 0 4px 16px rgba(46, 74, 128, 0.09);
+
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+
+  /* Legacy aliases — kept so older CSS modules render with the new palette. */
+  --ink: #ffffff;
+  --pale: var(--surface2);
+  --slate: var(--text3);
+  --mist: var(--text1);
+  --ocean: var(--primary-dark);
+  --ocean-lt: var(--primary);
+}
+
 @layer base {
-  html {
-    background-color: #0b1220;
+  *, *::before, *::after {
+    box-sizing: border-box;
   }
+
+  html {
+    background-color: var(--bg);
+  }
+
   body {
-    background-color: #0b1220;
-    color: #f1f5f9;
-    font-family: var(--font-inter), Inter, sans-serif;
-    overflow-x: hidden;
+    background-color: var(--bg);
+    color: var(--text1);
+    font-family: var(--font-dm-sans), 'DM Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .font-mono {
+    font-family: var(--font-dm-mono), 'DM Mono', ui-monospace, monospace;
   }
 }

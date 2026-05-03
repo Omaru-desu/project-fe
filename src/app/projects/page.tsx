@@ -1,61 +1,39 @@
 "use client";
 
-import { useState, useMemo } from 'react';
-import { Plus, Search, FolderOpen } from 'lucide-react';
-import { useProjects } from '../../hooks/useProjects';
-import ProjectCard from '../../components/projects/ProjectCard';
-import ProjectModal from '../../components/projects/ProjectModal';
-import DeleteConfirmModal from '../../components/projects/DeleteConfirmModal';
-import { Project, ProjectType, CreateProjectInput, UpdateProjectInput } from '../../types/project';
+import { useState, useMemo } from "react";
+import { Plus, FolderOpen } from "lucide-react";
+import { useProjects } from "../../hooks/useProjects";
+import ProjectCard from "../../components/projects/ProjectCard";
+import ProjectModal from "../../components/projects/ProjectModal";
+import DeleteConfirmModal from "../../components/projects/DeleteConfirmModal";
+import {
+    Project,
+    ProjectType,
+    CreateProjectInput,
+    UpdateProjectInput,
+} from "../../types/project";
 
-type Filter = 'all' | ProjectType;
-
-function SkeletonCard() {
-    return (
-        <div className="animate-pulse bg-bg-surface border border-border-default rounded-[10px] overflow-hidden">
-            <div className="h-[130px] bg-white/[0.03]" />
-            <div className="p-3.5 flex flex-col gap-2.5">
-                <div className="h-3.5 bg-white/[0.05] rounded w-3/4" />
-                <div className="h-3 bg-white/[0.03] rounded w-2/5" />
-                <div className="h-3 bg-white/[0.03] rounded w-full" />
-                <div className="h-3 bg-white/[0.03] rounded w-4/5" />
-            </div>
-        </div>
-    );
-}
+type Filter = "all" | ProjectType;
 
 const TABS: { id: Filter; label: string }[] = [
-    { id: 'all',    label: 'All'    },
-    { id: 'active', label: 'Active' },
-    { id: 'test',   label: 'Test'   },
+    { id: "all", label: "All" },
+    { id: "active", label: "Active" },
+    { id: "test", label: "Test" },
 ];
 
 export default function ProjectsPage() {
-    const { projects, loading, error, createProject, updateProject, deleteProject } = useProjects();
+    const { projects, loading, error, createProject, updateProject, deleteProject } =
+        useProjects();
 
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const [editingProject, setEditingProject]   = useState<Project | null>(null);
+    const [editingProject, setEditingProject] = useState<Project | null>(null);
     const [deletingProject, setDeletingProject] = useState<Project | null>(null);
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState<Filter>('all');
+    const [filter, setFilter] = useState<Filter>("all");
 
-    const counts = useMemo(() => ({
-        all:    projects.length,
-        active: projects.filter(p => p.type === 'active').length,
-        test:   projects.filter(p => p.type === 'test').length,
-    }), [projects]);
-
-    const visible = useMemo(() => {
-        let list = filter === 'all' ? projects : projects.filter(p => p.type === filter);
-        if (search.trim()) {
-            const q = search.toLowerCase();
-            list = list.filter(p =>
-                p.name.toLowerCase().includes(q) ||
-                (p.description ?? '').toLowerCase().includes(q)
-            );
-        }
-        return list;
-    }, [projects, filter, search]);
+    const filtered = useMemo(
+        () => (filter === "all" ? projects : projects.filter(p => p.type === filter)),
+        [projects, filter]
+    );
 
     const handleCreate = async (data: CreateProjectInput | UpdateProjectInput) => {
         await createProject(data as CreateProjectInput);
@@ -70,91 +48,186 @@ export default function ProjectsPage() {
     };
 
     return (
-        <div className="min-h-screen bg-bg-primary flex flex-col">
-            {/* Subbar */}
-            <div className="flex items-center justify-between px-7 py-3 border-b border-border-default">
-                <div className="flex items-center gap-0.5">
-                    {TABS.map(t => (
-                        <button
-                            key={t.id}
-                            onClick={() => setFilter(t.id)}
-                            className={`flex items-center gap-2 h-[30px] px-3 rounded-[6px] text-[13px] transition-colors duration-150 ${
-                                filter === t.id
-                                    ? 'bg-border-default text-text-secondary'
-                                    : 'text-text-muted hover:text-text-secondary'
-                            }`}
+        <div className="flex flex-col" style={{ background: "var(--bg)", minHeight: "calc(100vh - 58px)" }}>
+            <div style={{ flex: 1, overflow: "auto", padding: "28px" }}>
+                {/* Header */}
+                <div className="flex items-center justify-between" style={{ marginBottom: 20 }}>
+                    <div>
+                        <div
+                            style={{
+                                fontSize: 22,
+                                fontWeight: 800,
+                                color: "var(--text1)",
+                                letterSpacing: "-0.02em",
+                            }}
                         >
-                            {t.label}
-                            <span className="font-mono text-[11px] px-1.5 py-0.5 rounded-[3px] bg-bg-primary text-text-muted">
-                                {counts[t.id]}
-                            </span>
-                        </button>
-                    ))}
-                </div>
-
-                <div className="flex items-center gap-2.5">
-                    <div className="flex items-center gap-2 h-[32px] px-2.5 w-[260px] bg-bg-primary border border-border-default rounded-[6px] text-text-muted focus-within:border-border-hover transition-colors duration-150">
-                        <Search size={13} className="shrink-0" />
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            placeholder={`Search ${counts.all} projects…`}
-                            className="flex-1 bg-transparent outline-none text-[13px] text-text-secondary placeholder-text-muted"
-                        />
+                            Projects
+                        </div>
+                        <div style={{ fontSize: 13, color: "var(--text3)", marginTop: 2 }}>
+                            Select a project to start annotating
+                        </div>
                     </div>
                     <button
                         onClick={() => setShowCreateModal(true)}
-                        className="flex items-center gap-1.5 h-[32px] px-3.5 bg-accent-blue hover:bg-accent-blue-hover text-white text-[13px] font-medium rounded-[6px] transition-colors duration-150"
+                        className="flex items-center"
+                        style={{
+                            gap: 7,
+                            padding: "9px 20px",
+                            borderRadius: 9,
+                            border: "none",
+                            background: "var(--primary)",
+                            color: "#fff",
+                            fontFamily: "inherit",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                        }}
                     >
-                        <Plus size={13} />
-                        New project
+                        <Plus size={14} />
+                        New Project
                     </button>
                 </div>
-            </div>
 
-            {/* Content */}
-            <div className="flex-1 px-7 py-5">
+                {/* Filter tabs */}
+                <div
+                    className="flex items-center"
+                    style={{ gap: 8, marginBottom: 20 }}
+                >
+                    {TABS.map(tab => {
+                        const active = filter === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setFilter(tab.id)}
+                                style={{
+                                    padding: "6px 16px",
+                                    borderRadius: 99,
+                                    border: `1.5px solid ${active ? "var(--primary)" : "var(--border)"}`,
+                                    background: active ? "var(--primary-pale)" : "var(--surface)",
+                                    color: active ? "var(--primary-dark)" : "var(--text3)",
+                                    fontSize: 13,
+                                    fontWeight: active ? 600 : 400,
+                                    cursor: "pointer",
+                                    fontFamily: "inherit",
+                                }}
+                            >
+                                {tab.label}
+                            </button>
+                        );
+                    })}
+                    <div
+                        style={{
+                            marginLeft: "auto",
+                            fontSize: 13,
+                            color: "var(--text3)",
+                        }}
+                    >
+                        {filtered.length} project{filtered.length !== 1 ? "s" : ""}
+                    </div>
+                </div>
+
+                {/* Error */}
                 {error && (
-                    <div className="mb-4 px-4 py-3 rounded-lg bg-coral/10 border border-coral/25 text-coral text-[13px]">
+                    <div
+                        style={{
+                            marginBottom: 16,
+                            padding: "10px 14px",
+                            borderRadius: 8,
+                            background: "#fff0f0",
+                            border: "1px solid #ffd0d0",
+                            color: "var(--danger)",
+                            fontSize: 13,
+                        }}
+                    >
                         {error}
                     </div>
                 )}
 
+                {/* Loading skeleton */}
                 {loading && (
-                    <div className="grid grid-cols-3 gap-3.5">
-                        {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+                    <div
+                        className="grid"
+                        style={{
+                            gridTemplateColumns: "repeat(3, 1fr)",
+                            gap: 16,
+                        }}
+                    >
+                        {Array.from({ length: 6 }).map((_, i) => (
+                            <SkeletonCard key={i} />
+                        ))}
                     </div>
                 )}
 
+                {/* Empty state */}
                 {!loading && !error && projects.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-24 text-center">
-                        <div className="p-5 rounded-[10px] bg-accent-blue/[0.07] mb-4">
-                            <FolderOpen size={36} className="text-accent-blue opacity-70" />
+                    <div
+                        className="flex flex-col items-center justify-center text-center"
+                        style={{ padding: "80px 24px" }}
+                    >
+                        <div
+                            className="flex items-center justify-center"
+                            style={{
+                                width: 64,
+                                height: 64,
+                                borderRadius: 16,
+                                background: "var(--primary-pale)",
+                                marginBottom: 16,
+                            }}
+                        >
+                            <FolderOpen size={28} color="var(--primary)" />
                         </div>
-                        <p className="text-[15px] font-semibold text-text-primary mb-2">No projects yet</p>
-                        <p className="text-[13px] text-text-muted mb-5 max-w-[280px]">
+                        <p
+                            style={{
+                                fontSize: 16,
+                                fontWeight: 700,
+                                color: "var(--text1)",
+                                marginBottom: 6,
+                            }}
+                        >
+                            No projects yet
+                        </p>
+                        <p
+                            style={{
+                                fontSize: 13,
+                                color: "var(--text3)",
+                                marginBottom: 20,
+                                maxWidth: 280,
+                            }}
+                        >
                             Create your first project to start annotating underwater imagery.
                         </p>
                         <button
                             onClick={() => setShowCreateModal(true)}
-                            className="flex items-center gap-1.5 bg-accent-blue hover:bg-accent-blue-hover text-white text-[13px] font-medium px-4 py-2 rounded-[6px] transition-colors duration-150"
+                            className="flex items-center"
+                            style={{
+                                gap: 7,
+                                padding: "9px 18px",
+                                borderRadius: 9,
+                                border: "none",
+                                background: "var(--primary)",
+                                color: "#fff",
+                                fontFamily: "inherit",
+                                fontSize: 13,
+                                fontWeight: 600,
+                                cursor: "pointer",
+                            }}
                         >
-                            <Plus size={13} />
+                            <Plus size={14} />
                             Create your first project
                         </button>
                     </div>
                 )}
 
-                {!loading && projects.length > 0 && visible.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-24 text-center">
-                        <p className="text-[13px] text-text-muted">No projects match &ldquo;{search}&rdquo;</p>
-                    </div>
-                )}
-
-                {!loading && visible.length > 0 && (
-                    <div className="grid grid-cols-3 gap-3.5">
-                        {visible.map(project => (
+                {/* Grid */}
+                {!loading && projects.length > 0 && (
+                    <div
+                        className="grid"
+                        style={{
+                            gridTemplateColumns: "repeat(3, 1fr)",
+                            gap: 16,
+                        }}
+                    >
+                        {filtered.map(project => (
                             <ProjectCard
                                 key={project.id}
                                 project={project}
@@ -162,6 +235,49 @@ export default function ProjectsPage() {
                                 onDeleteAction={setDeletingProject}
                             />
                         ))}
+                        {/* New project add card */}
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            className="flex flex-col items-center justify-center"
+                            style={{
+                                background: "var(--surface)",
+                                borderRadius: "var(--r-md)",
+                                border: "2px dashed var(--border)",
+                                cursor: "pointer",
+                                padding: 36,
+                                gap: 10,
+                                minHeight: 240,
+                                fontFamily: "inherit",
+                                transition: "border-color 0.15s",
+                            }}
+                            onMouseEnter={e =>
+                                (e.currentTarget.style.borderColor = "var(--primary-light)")
+                            }
+                            onMouseLeave={e =>
+                                (e.currentTarget.style.borderColor = "var(--border)")
+                            }
+                        >
+                            <span
+                                className="flex items-center justify-center"
+                                style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 10,
+                                    background: "var(--primary-pale)",
+                                }}
+                            >
+                                <Plus size={20} color="var(--primary)" />
+                            </span>
+                            <span
+                                style={{
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    color: "var(--text2)",
+                                }}
+                            >
+                                New project
+                            </span>
+                        </button>
                     </div>
                 )}
             </div>
@@ -188,6 +304,68 @@ export default function ProjectsPage() {
                     onConfirmAction={handleDelete}
                 />
             )}
+        </div>
+    );
+}
+
+function SkeletonCard() {
+    return (
+        <div
+            className="overflow-hidden"
+            style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+                boxShadow: "var(--shadow-sm)",
+            }}
+        >
+            <div style={{ height: 4, background: "var(--border)" }} />
+            <div style={{ padding: 18 }} className="animate-pulse">
+                <div
+                    style={{
+                        height: 14,
+                        background: "var(--border)",
+                        borderRadius: 5,
+                        width: "60%",
+                        marginBottom: 10,
+                    }}
+                />
+                <div
+                    style={{
+                        height: 10,
+                        background: "var(--border)",
+                        borderRadius: 5,
+                        width: "100%",
+                        marginBottom: 6,
+                    }}
+                />
+                <div
+                    style={{
+                        height: 10,
+                        background: "var(--border)",
+                        borderRadius: 5,
+                        width: "80%",
+                        marginBottom: 14,
+                    }}
+                />
+                <div
+                    style={{
+                        height: 5,
+                        background: "var(--border)",
+                        borderRadius: 99,
+                        width: "100%",
+                        marginBottom: 12,
+                    }}
+                />
+                <div
+                    style={{
+                        height: 10,
+                        background: "var(--border)",
+                        borderRadius: 5,
+                        width: "70%",
+                    }}
+                />
+            </div>
         </div>
     );
 }
