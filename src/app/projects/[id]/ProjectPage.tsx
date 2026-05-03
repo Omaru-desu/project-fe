@@ -153,7 +153,8 @@ export default function ProjectPage({ projectId }: Props) {
     // Gallery filters
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [search, setSearch] = useState("");
-    const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
+    const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
+
 
     // Project lookup
     useEffect(() => {
@@ -319,7 +320,11 @@ export default function ProjectPage({ projectId }: Props) {
         );
     }
 
-    const selectedFrame = frames.find(f => f.id === selectedFrameId) ?? null;
+    const selectedDetection = detections.find(d => d.id === selectedDetectionId) ?? null;
+    const selectedFrame = selectedDetection
+        ? frames.find(f => f.id === selectedDetection.frame_id) ?? null
+        : null;
+
     const selectedFrameDetections = selectedFrame
         ? detections.filter(d => d.frame_id === selectedFrame.id)
         : [];
@@ -350,8 +355,8 @@ export default function ProjectPage({ projectId }: Props) {
                         setStatusFilter={setStatusFilter}
                         search={search}
                         setSearch={setSearch}
-                        selectedFrameId={selectedFrameId}
-                        setSelectedFrameId={setSelectedFrameId}
+                        selectedDetectionId={selectedDetectionId}
+                        setSelectedDetectionId={setSelectedDetectionId}
                         selectedFrame={selectedFrame}
                         selectedFrameDetections={selectedFrameDetections}
                         reviewedCount={reviewed}
@@ -419,11 +424,11 @@ function Sidebar({
         Icon: LucideIcon;
         badge?: number;
     }[] = [
-        { id: "gallery", label: "Images", Icon: ImageIcon },
-        { id: "annotate", label: "Annotate", Icon: Tag, badge: pendingCount },
-        { id: "models", label: "Model Performance", Icon: Cpu },
-        { id: "datasets", label: "Datasets", Icon: Database },
-    ];
+            { id: "gallery", label: "Images", Icon: ImageIcon },
+            { id: "annotate", label: "Annotate", Icon: Tag, badge: pendingCount },
+            { id: "models", label: "Model Performance", Icon: Cpu },
+            { id: "datasets", label: "Datasets", Icon: Database },
+        ];
 
     return (
         <aside
@@ -557,8 +562,8 @@ function GalleryScreen({
     setStatusFilter,
     search,
     setSearch,
-    selectedFrameId,
-    setSelectedFrameId,
+    selectedDetectionId,
+    setSelectedDetectionId,
     selectedFrame,
     selectedFrameDetections,
     reviewedCount,
@@ -579,10 +584,10 @@ function GalleryScreen({
     setStatusFilter: (s: StatusFilter) => void;
     search: string;
     setSearch: (s: string) => void;
-    selectedFrameId: string | null;
-    setSelectedFrameId: (id: string | null) => void;
     selectedFrame: FrameRow | null;
     selectedFrameDetections: Detection[];
+    selectedDetectionId: string | null;
+    setSelectedDetectionId: (id: string | null) => void;
     reviewedCount: number;
     needsReviewCount: number;
     totalDetections: number;
@@ -608,6 +613,7 @@ function GalleryScreen({
             bg: "rgba(94,201,154,0.1)",
         },
     ];
+    const [sortConf, setSortConf] = useState<"off" | "high" | "low">("off");
 
     return (
         <>
@@ -624,10 +630,6 @@ function GalleryScreen({
                     <button onClick={onUpload} className={styles.btnSecondary}>
                         <Plus size={13} />
                         Upload media
-                    </button>
-                    <button onClick={onStartAnnotating} className={styles.btnPrimary}>
-                        <Tag size={14} />
-                        Start Annotating
                     </button>
                     <button className={styles.bellBtn} aria-label="Notifications">
                         <Bell size={15} />
@@ -706,45 +708,65 @@ function GalleryScreen({
                             Clear filter
                         </button>
                     )}
+                    <select
+                        value={sortConf}
+                        onChange={e => setSortConf(e.target.value as "off" | "high" | "low")}
+                        className={styles.btnSecondary}
+                        style={{ padding: "5px 10px", fontSize: 11, cursor: "pointer" }}
+                    >
+                        <option value="off">Sort by confidence</option>
+                        <option value="high">Confidence ↓ high</option>
+                        <option value="low">Confidence ↑ low</option>
+                    </select>
                 </div>
             </div>
 
             {/* Body: frame grid + detail panel */}
             <div className={styles.galleryBody}>
                 <div className={styles.frameGrid}>
-                    {visibleFrames.length === 0 && (
-                        <div className={styles.emptyState}>
-                            {frames.length === 0
-                                ? processing
-                                    ? "Waiting for frames…"
-                                    : "No frames yet — upload media to get started."
-                                : "No frames match this filter."}
-                        </div>
-                    )}
-                    {visibleFrames.map(f => {
-                        const fStatus = frameStatus[f.id];
-                        const dotColor =
-                            fStatus === "reviewed"
-                                ? "var(--success)"
-                                : fStatus === "needs_review"
-                                    ? "var(--warning)"
-                                    : "var(--text3)";
-                        const dets = detectionsByFrame.filter(d => d.frame_id === f.id);
-                        return (
-                            <FrameThumb
-                                key={f.id}
-                                frame={f}
-                                detections={dets}
-                                selected={selectedFrameId === f.id}
-                                statusColor={dotColor}
-                                onClick={() =>
-                                    setSelectedFrameId(
-                                        selectedFrameId === f.id ? null : f.id
-                                    )
-                                }
-                            />
+                    {(() => {
+                        const visibleFrameIds = new Set(visibleFrames.map(f => f.id));
+
+                        const visibleDetections = detectionsByFrame.filter(d =>
+                            visibleFrameIds.has(d.frame_id)
                         );
-                    })}
+
+                        const sorted = sortConf === "high"
+                            ? [...visibleDetections].sort((a, b) => b.score - a.score)
+                            : sortConf === "low"
+                                ? [...visibleDetections].sort((a, b) => a.score - b.score)
+                                : visibleDetections;
+
+                        if (visibleDetections.length === 0) {
+                            return (
+                                <div className={styles.emptyState}>
+                                    {frames.length === 0
+                                        ? processing
+                                            ? "Waiting for frames…"
+                                            : "No frames yet — upload media to get started."
+                                        : "No detections match this filter."}
+                                </div>
+                            );
+                        }
+
+                        return sorted.map(det => {
+                            const frame = frames.find(f => f.id === det.frame_id);
+                            if (!frame) return null;
+                            return (
+                                <DetectionThumb
+                                    key={det.id}
+                                    detection={det}
+                                    frame={frame}
+                                    selected={selectedDetectionId === det.id}
+                                    onClick={() =>
+                                        setSelectedDetectionId(
+                                            selectedDetectionId === det.id ? null : det.id
+                                        )
+                                    }
+                                />
+                            );
+                        });
+                    })()}
                 </div>
 
                 {selectedFrame && (
@@ -752,7 +774,8 @@ function GalleryScreen({
                         frame={selectedFrame}
                         detections={selectedFrameDetections}
                         status={frameStatus[selectedFrame.id]}
-                        onClose={() => setSelectedFrameId(null)}
+                        selectedDetectionId={selectedDetectionId}
+                        onClose={() => setSelectedDetectionId(null)}
                         onAnnotate={onStartAnnotating}
                         onOpenReview={onOpenReview}
                     />
@@ -762,61 +785,90 @@ function GalleryScreen({
     );
 }
 
-function FrameThumb({
+function DetectionThumb({
+    detection,
     frame,
-    detections,
     selected,
-    statusColor,
     onClick,
 }: {
+    detection: Detection;
     frame: FrameRow;
-    detections: Detection[];
     selected: boolean;
-    statusColor: string;
     onClick: () => void;
 }) {
-    const top = detections[0];
+    const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+    const statusColor =
+        detection.status === "reviewed" ? "var(--success)" : "var(--warning)";
+
+    const frameDets = frame.detections;
+
     return (
         <div
             onClick={onClick}
             className={`${styles.frameThumb} ${selected ? styles.frameThumbSelected : ""}`}
         >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
                 src={frame.frame_url}
                 alt={frame.source_filename}
                 className={styles.frameThumbImg}
                 loading="lazy"
+                onLoad={(e) => {
+                    const img = e.currentTarget;
+                    setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+                }}
             />
-            {top && (
-                <div
-                    style={{
-                        position: "absolute",
-                        bottom: 22,
-                        left: 6,
-                        background: "rgba(0,0,0,0.5)",
-                        color: "#fff",
-                        fontSize: 9,
-                        fontWeight: 600,
-                        padding: "1px 6px",
-                        borderRadius: 4,
-                        fontFamily: "var(--font-dm-mono), 'DM Mono', monospace",
-                        whiteSpace: "nowrap",
-                        maxWidth: "calc(100% - 12px)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                    }}
-                >
-                    {top.display_label || "Unknown"} · {Math.round(top.score * 100)}%
+
+            {/* selected overlay */}
+            {selected && (
+                <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(127, 163, 232, 0.15)",
+                    zIndex: 2,
+                    pointerEvents: "none",
+                }} />
+            )}
+
+            {/* loading overlay */}
+            {frame.status !== "segmented" && (
+                <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(10, 16, 24, 0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 3,
+                    pointerEvents: "none",
+                }}>
+                    <div className={styles.loadingSpinner} style={{ width: 20, height: 20, borderWidth: 2 }} />
                 </div>
             )}
-            <div
-                className={styles.frameThumbStatusDot}
-                style={{ background: statusColor }}
-            />
-            <div className={styles.frameThumbId}>
-                {frame.source_filename.slice(0, 14)}
-            </div>
+
+            {/* bbox overlay */}
+            {imgSize && (() => {
+                const [x1, y1, x2, y2] = detection.bbox;
+                const left = (x1 / imgSize.w) * 100;
+                const top = (y1 / imgSize.h) * 100;
+                const width = ((x2 - x1) / imgSize.w) * 100;
+                const height = ((y2 - y1) / imgSize.h) * 100;
+                return (
+                    <div
+                        key={detection.id}
+                        style={{
+                            position: "absolute",
+                            left: `${left}%`,
+                            top: `${top}%`,
+                            width: `${width}%`,
+                            height: `${height}%`,
+                            border: "1.5px solid #ff4444",
+                            boxSizing: "border-box",
+                            pointerEvents: "none",
+                            zIndex: 1,
+                        }}
+                    />
+                );
+            })()}
         </div>
     );
 }
@@ -828,14 +880,17 @@ function FrameDetailPanel({
     onClose,
     onAnnotate,
     onOpenReview,
+    selectedDetectionId,
 }: {
     frame: FrameRow;
     detections: Detection[];
     status: "reviewed" | "needs_review" | "no_detections" | undefined;
+    selectedDetectionId: string | null;
     onClose: () => void;
     onAnnotate: () => void;
     onOpenReview: (d: Detection) => void;
 }) {
+    const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
     const statusBadge =
         status === "reviewed"
             ? { label: "Reviewed", color: "var(--success)", bg: "rgba(94,201,154,0.12)" }
@@ -872,19 +927,54 @@ function FrameDetailPanel({
                         overflow: "hidden",
                         aspectRatio: "4/3",
                         background: "#11293f",
+                        position: "relative",
                     }}
                 >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src={frame.frame_url}
                         alt={frame.source_filename}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        style={{ width: "100%", height: "100%", objectFit: "cover", zIndex: 0 }}
+                        onLoad={(e) => {
+                            const img = e.currentTarget;
+                            setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+                        }}
                     />
+
+                    {imgSize && detections
+                        .filter(det => selectedDetectionId === null || det.id === selectedDetectionId)
+                        .map((det) => {
+                            const [x1, y1, x2, y2] = det.bbox;
+                            const left = (x1 / imgSize.w) * 100;
+                            const top = (y1 / imgSize.h) * 100;
+                            const width = ((x2 - x1) / imgSize.w) * 100;
+                            const height = ((y2 - y1) / imgSize.h) * 100;
+                            return (
+                                <div
+                                    key={det.id}
+                                    style={{
+                                        position: "absolute",
+                                        left: `${left}%`,
+                                        top: `${top}%`,
+                                        width: `${width}%`,
+                                        height: `${height}%`,
+                                        border: "1.5px solid #ff4444",
+                                        boxSizing: "border-box",
+                                        pointerEvents: "none",
+                                        zIndex: 1,
+                                    }}
+                                />
+                            );
+                        })}
                 </div>
 
                 <div>
                     <div className={styles.detailLabel}>Frame</div>
-                    <div className={`${styles.detailValue} ${styles.detailValueMono}`}>
+                    <div className={`${styles.detailValue} ${styles.detailValueMono}`} style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                    }}>
                         {frame.source_filename}
                     </div>
                 </div>
@@ -904,7 +994,7 @@ function FrameDetailPanel({
                             Detections ({detections.length})
                         </div>
                         <div className="flex flex-col" style={{ gap: 6 }}>
-                            {detections.slice(0, 4).map(d => (
+                            {detections.sort((a, b) => b.score - a.score).slice(0, 4).map(d => (
                                 <button
                                     key={d.id}
                                     onClick={() => onOpenReview(d)}
