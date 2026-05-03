@@ -815,6 +815,7 @@ function DetectionThumb({
             onClick={onClick}
             className={`${styles.frameThumb} ${selected ? styles.frameThumbSelected : ""}`}
         >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
                 src={frame.frame_url}
                 alt={frame.source_filename}
@@ -938,6 +939,7 @@ function FrameDetailPanel({
                         position: "relative",
                     }}
                 >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src={frame.frame_url}
                         alt={frame.source_filename}
