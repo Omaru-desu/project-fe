@@ -1362,10 +1362,11 @@ function AnnotateReview({
                         : `${d.display_label || "Unknown"} · ${Math.round((d.score ?? 0) * 100)}%`;
                 ctx.font = "bold 11px var(--font-dm-mono), 'DM Mono', monospace";
                 const tw = ctx.measureText(label).width;
+                const labelY = sy1 < 20 ? sy1 + 18 : sy1;
                 ctx.fillStyle = color;
-                ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 10, 18);
+                ctx.fillRect(sx1, Math.max(0, labelY - 18), tw + 10, 18);
                 ctx.fillStyle = "#fff";
-                ctx.fillText(label, sx1 + 5, sy1 - 4);
+                ctx.fillText(label, sx1 + 5, labelY - 4);
             });
 
             boundingBoxes.forEach(b => {
@@ -1376,7 +1377,7 @@ function AnnotateReview({
                     sh = (y2 - y1) * scale;
                 const isActive = b.id === activeBboxId;
                 const color =
-                    labelColorMap.get(b.display_label) ?? "var(--teal)";
+                    labelColorMap.get(b.display_label) ?? "#5ec99a";
 
                 ctx.strokeStyle = isActive ? "#fff" : color;
                 ctx.lineWidth = isActive ? 2 : 1.5;
@@ -1385,15 +1386,22 @@ function AnnotateReview({
                 ctx.setLineDash([]);
                 ctx.font = "bold 11px var(--font-dm-mono), 'DM Mono', monospace";
                 const tw = ctx.measureText(b.display_label).width;
+                const labelY = sy1 < 20 ? sy1 + 18 : sy1;
                 ctx.fillStyle = color;
-                ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 10, 18);
-                ctx.fillStyle = "#fff";
-                ctx.fillText(b.display_label, sx1 + 5, sy1 - 4);
+                ctx.fillRect(sx1, Math.max(0, labelY - 18), tw + 10, 18);
+                ctx.fillStyle = "#FFF"; 
+                ctx.fillText(b.display_label, sx1 + 5, labelY - 4);
             });
 
             if (isDrawing && drawStart.current && drawCurrent.current) {
                 const { x: sx, y: sy } = drawStart.current;
                 const { x: ex, y: ey } = drawCurrent.current;
+
+                // Transparent fill mask
+                ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+                ctx.fillRect(sx, sy, ex - sx, ey - sy);
+
+                // Dashed border
                 ctx.strokeStyle = "#fff";
                 ctx.lineWidth = 2;
                 ctx.setLineDash([4, 3]);
@@ -1998,7 +2006,7 @@ function AnnotateReview({
                                                 marginRight: 4,
                                             }}
                                         >
-                                            human
+                                            drawn
                                         </span>
                                         <button
                                             onClick={e => {
