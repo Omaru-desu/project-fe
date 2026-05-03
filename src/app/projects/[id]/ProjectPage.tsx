@@ -725,11 +725,19 @@ function GalleryScreen({
             <div className={styles.galleryBody}>
                 <div className={styles.frameGrid}>
                     {(() => {
-                        const visibleFrameIds = new Set(visibleFrames.map(f => f.id));
-
-                        const visibleDetections = detectionsByFrame.filter(d =>
-                            visibleFrameIds.has(d.frame_id)
-                        );
+                        const visibleDetections = detectionsByFrame.filter(d => {
+                            const matchStatus =
+                                statusFilter === "all" ||
+                                (statusFilter === "reviewed" && d.status === "reviewed") ||
+                                (statusFilter === "needs_review" && d.status === "needs_review");
+                            const q = search.trim().toLowerCase();
+                            const matchSearch =
+                                !q ||
+                                d.source_filename.toLowerCase().includes(q) ||
+                                (d.display_label ?? "").toLowerCase().includes(q) ||
+                                (d.taxon ?? "").toLowerCase().includes(q);
+                            return matchStatus && matchSearch;
+                        });
 
                         const sorted = sortConf === "high"
                             ? [...visibleDetections].sort((a, b) => b.score - a.score)
@@ -891,12 +899,13 @@ function FrameDetailPanel({
     onOpenReview: (d: Detection) => void;
 }) {
     const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+    const activeDet = selectedDetectionId
+        ? detections.find(d => d.id === selectedDetectionId) ?? detections[0]
+        : detections[0];
     const statusBadge =
-        status === "reviewed"
+        activeDet?.status === "reviewed"
             ? { label: "Reviewed", color: "var(--success)", bg: "rgba(94,201,154,0.12)" }
-            : status === "needs_review"
-                ? { label: "Needs review", color: "var(--warning)", bg: "rgba(245,188,98,0.15)" }
-                : { label: "No detections", color: "var(--text3)", bg: "var(--surface2)" };
+            : { label: "Needs review", color: "var(--warning)", bg: "rgba(245,188,98,0.15)" };
 
     return (
         <div className={styles.detailPanel}>
@@ -925,16 +934,14 @@ function FrameDetailPanel({
                     style={{
                         borderRadius: 8,
                         overflow: "hidden",
-                        aspectRatio: "4/3",
                         background: "#11293f",
                         position: "relative",
                     }}
                 >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src={frame.frame_url}
                         alt={frame.source_filename}
-                        style={{ width: "100%", height: "100%", objectFit: "cover", zIndex: 0 }}
+                        style={{ width: "100%", height: "auto", objectFit: "contain", zIndex: 0, display: "block" }}
                         onLoad={(e) => {
                             const img = e.currentTarget;
                             setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
@@ -968,6 +975,35 @@ function FrameDetailPanel({
                         })}
                 </div>
 
+                <div>
+                    <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        marginTop: 6
+                    }}>
+                        <span style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: "var(--text1)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                        }}>
+                            {activeDet?.display_label || "Unknown"}
+                        </span>
+                        <span style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: detections[0]?.score > 0.75 ? "var(--success)" : detections[0]?.score > 0.5 ? "var(--warning)" : "var(--danger)",
+                            background: detections[0]?.score > 0.75 ? "rgba(94,201,154,0.12)" : detections[0]?.score > 0.5 ? "rgba(245,188,98,0.15)" : "rgba(220,50,50,0.1)",
+                            padding: "2px 8px",
+                            borderRadius: 99,
+                        }}>
+                            {Math.round((activeDet?.score ?? 0) * 100)}%
+                        </span>
+                    </div>
+
+                </div>
                 <div>
                     <div className={styles.detailLabel}>Frame</div>
                     <div className={`${styles.detailValue} ${styles.detailValueMono}`} style={{
