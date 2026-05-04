@@ -132,10 +132,11 @@ export async function reviewDetectionLabel(id: string, newLabel: string): Promis
     return handleResponse<void>(res);
 }
 
-export async function getFrameDetections(projectId: string, frameId: string) {
+export async function getFrameDetections(projectId: string, frameId: string, signal?: AbortSignal) {
     try {
         const res = await fetch(`${API_URL}/api/projects/${projectId}/frames/${frameId}/detections`, {
-            headers: await authHeaders()
+            headers: await authHeaders(),
+            signal
         });
         if (!res.ok) return { detections: [] };
         return res.json();
