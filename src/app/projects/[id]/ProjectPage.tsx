@@ -301,29 +301,6 @@ export default function ProjectPage({ projectId }: Props) {
         else frameStatus[f.id] = "needs_review";
     }
 
-    const visibleFrames = useMemo(() => {
-        return frames.filter(f => {
-            const fStatus = frameStatus[f.id];
-            const matchStatus =
-                statusFilter === "all" ||
-                (statusFilter === "reviewed" && fStatus === "reviewed") ||
-                (statusFilter === "needs_review" &&
-                    (fStatus === "needs_review" || fStatus === "no_detections"));
-            const q = search.trim().toLowerCase();
-            const matchSearch =
-                !q ||
-                f.source_filename.toLowerCase().includes(q) ||
-                detections.some(
-                    d =>
-                        d.frame_id === f.id &&
-                        ((d.display_label ?? "").toLowerCase().includes(q) ||
-                            (d.taxon ?? "").toLowerCase().includes(q))
-                );
-            return matchStatus && matchSearch;
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frames, detections, statusFilter, search]);
-
     if (!project) {
         return (
             <div className={styles.loading}>
@@ -362,7 +339,6 @@ export default function ProjectPage({ projectId }: Props) {
                     <GalleryScreen
                         project={project}
                         frames={frames}
-                        visibleFrames={visibleFrames}
                         frameStatus={frameStatus}
                         detectionsByFrame={detections}
                         statusFilter={statusFilter}
@@ -581,7 +557,6 @@ function Sidebar({
 function GalleryScreen({
     project,
     frames,
-    visibleFrames,
     frameStatus,
     detectionsByFrame,
     statusFilter,
@@ -603,17 +578,16 @@ function GalleryScreen({
 }: {
     project: { name: string };
     frames: FrameRow[];
-    visibleFrames: FrameRow[];
     frameStatus: Record<string, "reviewed" | "needs_review" | "no_detections">;
     detectionsByFrame: Detection[];
     statusFilter: StatusFilter;
     setStatusFilter: (s: StatusFilter) => void;
     search: string;
     setSearch: (s: string) => void;
-    selectedFrame: FrameRow | null;
-    selectedFrameDetections: Detection[];
     selectedDetectionId: string | null;
     setSelectedDetectionId: (id: string | null) => void;
+    selectedFrame: FrameRow | null;
+    selectedFrameDetections: Detection[];
     reviewedCount: number;
     needsReviewCount: number;
     totalDetections: number;
@@ -623,6 +597,8 @@ function GalleryScreen({
     onStartAnnotating: () => void;
     onOpenReview: (d: Detection) => void;
 }) {
+    const [sortConf, setSortConf] = useState<"off" | "high" | "low">("off");
+
     const stats = [
         {
             key: "needs_review" as StatusFilter,
@@ -639,7 +615,6 @@ function GalleryScreen({
             bg: "rgba(94,201,154,0.1)",
         },
     ];
-    const [sortConf, setSortConf] = useState<"off" | "high" | "low">("off");
 
     return (
         <>
@@ -656,6 +631,10 @@ function GalleryScreen({
                     <button onClick={onUpload} className={styles.btnSecondary}>
                         <Plus size={13} />
                         Upload media
+                    </button>
+                    <button onClick={onStartAnnotating} className={styles.btnPrimary}>
+                        <Tag size={14} />
+                        Start Annotating
                     </button>
                     <button className={styles.bellBtn} aria-label="Notifications">
                         <Bell size={15} />
