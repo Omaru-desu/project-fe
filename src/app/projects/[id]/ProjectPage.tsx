@@ -808,7 +808,6 @@ function GalleryScreen({
                         frame={selectedFrame}
                         detections={selectedFrameDetections}
                         status={frameStatus[selectedFrame.id]}
-                        selectedDetectionId={selectedDetectionId}
                         onClose={() => setSelectedDetectionId(null)}
                         onAnnotate={onStartAnnotating}
                         onOpenReview={onOpenReview}
@@ -915,24 +914,20 @@ function FrameDetailPanel({
     onClose,
     onAnnotate,
     onOpenReview,
-    selectedDetectionId,
 }: {
     frame: FrameRow;
     detections: Detection[];
     status: "reviewed" | "needs_review" | "no_detections" | undefined;
-    selectedDetectionId: string | null;
     onClose: () => void;
     onAnnotate: () => void;
     onOpenReview: (d: Detection) => void;
 }) {
-    const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
-    const activeDet = selectedDetectionId
-        ? detections.find(d => d.id === selectedDetectionId) ?? detections[0]
-        : detections[0];
     const statusBadge =
-        activeDet?.status === "reviewed"
+        status === "reviewed"
             ? { label: "Reviewed", color: "var(--success)", bg: "rgba(94,201,154,0.12)" }
-            : { label: "Needs review", color: "var(--warning)", bg: "rgba(245,188,98,0.15)" };
+            : status === "needs_review"
+                ? { label: "Needs review", color: "var(--warning)", bg: "rgba(245,188,98,0.15)" }
+                : { label: "No detections", color: "var(--text3)", bg: "var(--surface2)" };
 
     return (
         <div className={styles.detailPanel}>
@@ -961,77 +956,18 @@ function FrameDetailPanel({
                     style={{
                         borderRadius: 8,
                         overflow: "hidden",
+                        aspectRatio: "4/3",
                         background: "#11293f",
-                        position: "relative",
                     }}
                 >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src={frame.frame_url}
                         alt={frame.source_filename}
-                        style={{ width: "100%", height: "auto", objectFit: "contain", zIndex: 0, display: "block" }}
-                        onLoad={(e) => {
-                            const img = e.currentTarget;
-                            setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
-                        }}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
-
-                    {imgSize && detections
-                        .filter(det => selectedDetectionId === null || det.id === selectedDetectionId)
-                        .map((det) => {
-                            const [x1, y1, x2, y2] = det.bbox;
-                            const left = (x1 / imgSize.w) * 100;
-                            const top = (y1 / imgSize.h) * 100;
-                            const width = ((x2 - x1) / imgSize.w) * 100;
-                            const height = ((y2 - y1) / imgSize.h) * 100;
-                            return (
-                                <div
-                                    key={det.id}
-                                    style={{
-                                        position: "absolute",
-                                        left: `${left}%`,
-                                        top: `${top}%`,
-                                        width: `${width}%`,
-                                        height: `${height}%`,
-                                        border: "1.5px solid #ff4444",
-                                        boxSizing: "border-box",
-                                        pointerEvents: "none",
-                                        zIndex: 1,
-                                    }}
-                                />
-                            );
-                        })}
                 </div>
 
-                <div>
-                    <div style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        marginTop: 6
-                    }}>
-                        <span style={{
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: "var(--text1)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                        }}>
-                            {activeDet?.display_label || "Unknown"}
-                        </span>
-                        <span style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: detections[0]?.score > 0.75 ? "var(--success)" : detections[0]?.score > 0.5 ? "var(--warning)" : "var(--danger)",
-                            background: detections[0]?.score > 0.75 ? "rgba(94,201,154,0.12)" : detections[0]?.score > 0.5 ? "rgba(245,188,98,0.15)" : "rgba(220,50,50,0.1)",
-                            padding: "2px 8px",
-                            borderRadius: 99,
-                        }}>
-                            {Math.round((activeDet?.score ?? 0) * 100)}%
-                        </span>
-                    </div>
-
-                </div>
                 <div>
                     <div className={styles.detailLabel}>Frame</div>
                     <div className={`${styles.detailValue} ${styles.detailValueMono}`} style={{
