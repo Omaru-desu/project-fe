@@ -1450,6 +1450,14 @@ function AnnotateReview({
         setSaveError(null);
     }, [activeId, activeType, detections]);
 
+    useEffect(() => {
+        const combined = [
+            ...detections,
+            ...boundingBoxes.map(b => ({ display_label: b.display_label })),
+        ];
+        setLabelColorMap(buildLabelColorMap(combined));
+    }, [detections, boundingBoxes]);
+
     // draw loop
     const draw = useCallback(() => {
         const c = canvasRef.current;
@@ -1473,12 +1481,21 @@ function AnnotateReview({
                 const isActive = d.id === activeId && activeType === "det";
                 const isHov = d.id === hovId;
                 ctx.save();
-                if (isActive) { ctx.shadowColor = color; ctx.shadowBlur = 10; }
-                ctx.strokeStyle = isHov ? "#fff" : color;
-                ctx.lineWidth = isActive || isHov ? 2 : 1.5;
+                if (isActive) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.2)")
+                        : color + "33";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                } else if (isHov) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.13)")
+                        : color + "22";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                }
+                ctx.strokeStyle = color;
+                ctx.lineWidth = isActive ? 3 : isHov ? 2.8 : 1.5;
                 ctx.setLineDash([]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
-                ctx.shadowBlur = 0;
                 ctx.font = "bold 11px 'DM Mono', monospace";
                 const label = `${d.display_label || "Unknown"} ${Math.round((d.score ?? 0) * 100)}%`;
                 const tw = ctx.measureText(label).width;
@@ -1486,16 +1503,6 @@ function AnnotateReview({
                 ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 8, 18);
                 ctx.fillStyle = "#fff";
                 ctx.fillText(label, sx1 + 4, sy1 - 4);
-                if (isActive) {
-                    [[sx1, sy1], [sx1 + sw, sy1], [sx1, sy1 + sh], [sx1 + sw, sy1 + sh]].forEach(([hx, hy]) => {
-                        ctx.fillStyle = "#fff"; ctx.fillRect(hx - 4, hy - 4, 8, 8);
-                        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(hx - 4, hy - 4, 8, 8);
-                    });
-                    ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
-                    ctx.fillRect(sx1, sy1, sw, sh);
-                    ctx.shadowColor = color;
-                    ctx.shadowBlur = 10;
-                }
                 ctx.restore();
             });
 
@@ -1507,30 +1514,28 @@ function AnnotateReview({
                 const isHov = b.id === hovId;
                 const color = labelColorMap.get(b.display_label) ?? "#34d399";
                 ctx.save();
-                if (isActive) { ctx.shadowColor = color; ctx.shadowBlur = 10; }
-                ctx.strokeStyle = isHov ? "#fff" : color;
-                ctx.lineWidth = isActive || isHov ? 2 : 1.5;
+                if (isActive) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.2)")
+                        : color + "33";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                } else if (isHov) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.13)")
+                        : color + "22";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                }
+                ctx.strokeStyle = color;
+                ctx.lineWidth = isActive ? 3 : isHov ? 2.8 : 1.5;
                 ctx.setLineDash([6, 3]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
-                ctx.shadowBlur = 0;
                 ctx.setLineDash([]);
-                ctx.shadowBlur = 0;
                 ctx.font = "bold 11px 'DM Mono', monospace";
                 const tw = ctx.measureText(b.display_label).width;
                 ctx.fillStyle = color;
                 ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 8, 18);
                 ctx.fillStyle = "#fff";
                 ctx.fillText(b.display_label, sx1 + 4, sy1 - 4);
-                if (isActive) {
-                    [[sx1, sy1], [sx1 + sw, sy1], [sx1, sy1 + sh], [sx1 + sw, sy1 + sh]].forEach(([hx, hy]) => {
-                        ctx.fillStyle = "#fff"; ctx.fillRect(hx - 4, hy - 4, 8, 8);
-                        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(hx - 4, hy - 4, 8, 8);
-                    });
-                    ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
-                    ctx.fillRect(sx1, sy1, sw, sh);
-                    ctx.shadowColor = color;
-                    ctx.shadowBlur = 10;
-                }
                 ctx.restore();
             });
         }
@@ -1778,19 +1783,32 @@ function AnnotateReview({
     }
 
     async function handleSaveReview() {
-        const toSave = detections.filter(d => !pendingDeletions.has(d.id));
+        const toSaveDets = detections.filter(d => !pendingDeletions.has(d.id));
+        const toSaveBboxes = boundingBoxes.filter(b => !pendingDeletions.has(b.id));
+        const bboxIds = new Set(boundingBoxes.map(b => b.id));
 
         setSavingReview(true);
         try {
             await Promise.all([
-                ...toSave.map(d => {
+                // save detection labels
+                ...toSaveDets.map(d => {
                     const label = pendingLabels.get(d.id)?.trim() ?? d.display_label;
                     return api.reviewDetectionLabel(d.id, label);
                 }),
-                ...[...pendingDeletions].map(id => api.deleteDetection(id)),
+                // save bbox label changes
+                ...toSaveBboxes
+                    .filter(b => pendingLabels.has(b.id))
+                    .map(b => api.updateBoundingBox(projectId, frame!.id, b.id, {
+                        display_label: pendingLabels.get(b.id)!.trim(),
+                    })),
+                // delete — use correct endpoint per type
+                ...[...pendingDeletions].map(id =>
+                    bboxIds.has(id)
+                        ? api.deleteBoundingBox(projectId, frame!.id, id)
+                        : api.deleteDetection(id)
+                ),
             ]);
 
-            // track which ones were edited so we can hide their %
             const editedIds = [...pendingLabels.keys()];
             setReviewedWithoutScore(prev => {
                 const next = new Set(prev);
@@ -1806,6 +1824,16 @@ function AnnotateReview({
                     status: "reviewed",
                 }));
             setDetections(newDets);
+
+            setBoundingBoxes(prev =>
+                prev
+                    .filter(b => !pendingDeletions.has(b.id))
+                    .map(b => ({
+                        ...b,
+                        display_label: pendingLabels.get(b.id)?.trim() ?? b.display_label,
+                    }))
+            );
+
             exitReviewMode();
         } catch (err: any) {
             setSaveError(err.message ?? "Failed to save");
@@ -2226,13 +2254,25 @@ function AnnotateReview({
                         {!loadingBboxes &&
                             boundingBoxes.map(b => {
                                 const active = b.id === activeId && activeType === "bbox";
-                                const bboxColor = labelColorMap.get(b.display_label) ?? "#a78bfa";
+                                const bboxColor = labelColorMap.get(b.display_label) ?? "#34d399";
+                                const isEditingBbox = editingDetectionId === b.id;
+                                const currentBboxLabel = pendingLabels.get(b.id) ?? b.display_label;
+                                const isPendingDelete = pendingDeletions.has(b.id);
+
                                 return (
                                     <div
                                         key={b.id}
                                         onClick={() => {
+                                            if (reviewMode) return;
                                             setActiveId(active ? null : b.id);
                                             setActiveType(active ? null : "bbox");
+                                        }}
+                                        onDoubleClick={() => {
+                                            if (!reviewMode) return;
+                                            setEditingDetectionId(b.id);
+                                            if (!pendingLabels.has(b.id)) {
+                                                setPendingLabels(prev => new Map(prev).set(b.id, b.display_label));
+                                            }
                                         }}
                                         style={{
                                             display: "flex",
@@ -2240,7 +2280,7 @@ function AnnotateReview({
                                             gap: 10,
                                             padding: "8px 10px",
                                             borderRadius: 7,
-                                            cursor: "pointer",
+                                            cursor: reviewMode ? "text" : "pointer",
                                             background: active ? "rgba(94,201,154,0.1)" : "var(--surface2)",
                                             border: `1.5px dashed ${active ? bboxColor : "var(--border)"}`,
                                         }}
@@ -2255,31 +2295,81 @@ function AnnotateReview({
                                                 flexShrink: 0,
                                             }}
                                         />
-                                        <span style={{ flex: 1, fontSize: 13, color: "var(--text1)", fontWeight: active ? 600 : 500 }}>
-                                            {b.display_label}
-                                        </span>
-                                        <span
-                                            style={{
-                                                fontSize: 10,
-                                                color: bboxColor,
-                                                fontWeight: 700,
-                                                marginRight: 4,
-                                            }}
-                                        >
-                                            drawn
-                                        </span>
-                                        <button
-                                            onClick={e => { e.stopPropagation(); handleDeleteBbox(b.id); }}
-                                            style={{
-                                                background: "none",
-                                                border: "none",
-                                                color: "var(--danger)",
-                                                cursor: "pointer",
-                                                fontSize: 14,
-                                                lineHeight: 1,
-                                                padding: 2,
-                                            }}
-                                        >×</button>
+                                        {isEditingBbox ? (
+                                            <input
+                                                autoFocus
+                                                value={currentBboxLabel}
+                                                onChange={e =>
+                                                    setPendingLabels(prev => new Map(prev).set(b.id, e.target.value))
+                                                }
+                                                onBlur={() => setEditingDetectionId(null)}
+                                                onKeyDown={e => {
+                                                    if (e.key === "Enter" || e.key === "Escape")
+                                                        setEditingDetectionId(null);
+                                                }}
+                                                onClick={e => e.stopPropagation()}
+                                                style={{
+                                                    flex: 1,
+                                                    fontSize: 13,
+                                                    fontFamily: "inherit",
+                                                    fontWeight: 600,
+                                                    background: "transparent",
+                                                    border: "none",
+                                                    borderBottom: `1.5px solid ${bboxColor}`,
+                                                    outline: "none",
+                                                    color: "var(--text1)",
+                                                    padding: "0 2px",
+                                                }}
+                                            />
+                                        ) : (
+                                            <span
+                                                style={{
+                                                    flex: 1,
+                                                    fontSize: 13,
+                                                    color: isPendingDelete ? "var(--text3)" : "var(--text1)",
+                                                    fontWeight: active ? 600 : 500,
+                                                    textDecoration: isPendingDelete ? "line-through" : "none",
+                                                }}
+                                            >
+                                                {currentBboxLabel}
+                                            </span>
+                                        )}
+                                        {!reviewMode && (
+                                            <span style={{ fontSize: 10, color: bboxColor, fontWeight: 700, marginRight: 4 }}>
+                                                drawn
+                                            </span>
+                                        )}
+                                        {reviewMode && !isEditingBbox && !isPendingDelete && (
+                                            <span style={{ fontSize: 10, color: "var(--text3)", opacity: 0.6 }}>
+                                                edit
+                                            </span>
+                                        )}
+                                        {reviewMode && (
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    setPendingDeletions(prev => {
+                                                        const next = new Set(prev);
+                                                        if (next.has(b.id)) next.delete(b.id);
+                                                        else next.add(b.id);
+                                                        return next;
+                                                    });
+                                                }}
+                                                style={{
+                                                    background: "none",
+                                                    border: "none",
+                                                    color: "var(--danger)",
+                                                    cursor: "pointer",
+                                                    fontSize: isPendingDelete ? 11 : 14,
+                                                    fontWeight: isPendingDelete ? 700 : 400,
+                                                    lineHeight: 1,
+                                                    padding: 2,
+                                                    fontFamily: "inherit",
+                                                }}
+                                            >
+                                                {isPendingDelete ? "undo" : "×"}
+                                            </button>
+                                        )}
                                     </div>
                                 );
                             })}
