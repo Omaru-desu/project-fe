@@ -53,6 +53,7 @@ interface ProcessingStatus {
     totalFrames: number;
     framesProcessed: number;
     status: string;
+    errorMessage?: string;
 }
 
 interface FrameRow {
@@ -138,7 +139,7 @@ export default function ProjectPage({ projectId }: Props) {
     } | null>(null);
     const [frames, setFrames] = useState<FrameRow[]>([]);
     const [detections, setDetections] = useState<Detection[]>([]);
-    const [processing, setProcessing] = useState<ProcessingStatus | null>(null);
+    const [processingList, setProcessingList] = useState<ProcessingStatus[]>([]);
     const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
     const [displayName, setDisplayName] = useState("");
@@ -208,25 +209,43 @@ export default function ProjectPage({ projectId }: Props) {
 
     // Initial frames load
     useEffect(() => {
-        let cancelled = false;
-        api
-            .getProjectFrames(projectId)
-            .then(data => {
-                if (cancelled) return;
-                setFrames(data.frames as FrameRow[]);
-                rebuildDetections(data.frames as FrameRow[]);
+    let cancelled = false;
+    api.getProjectFrames(projectId)
+        .then(async data => {
+            if (cancelled) return;
+            setFrames(data.frames as FrameRow[]);
+            rebuildDetections(data.frames as FrameRow[]);
 
-                const inProgress = data.frames.filter(
-                    f =>
-                        f.status === "queued" ||
-                        f.status === "segmenting" ||
-                        f.status === "processing_frames"
-                );
-                if (inProgress.length > 0) {
-                    startPolling(inProgress[0].upload_id, data.frames.length);
+            const uploadIds = [...new Set(
+                data.frames.map((f: any) => f.upload_id).filter(Boolean)
+            )] as string[];
+
+            for (const uploadId of uploadIds) {
+                try {
+                    const status = await api.getUploadStatus(uploadId);
+                    if (cancelled) return;
+
+                    setProcessingList(prev => {
+                        if (prev.find(p => p.uploadId === uploadId)) return prev;
+                        return [...prev, {
+                            uploadId,
+                            totalFrames: status.total_frames,
+                            framesProcessed: status.frames_processed,
+                            status: status.status,
+                            errorMessage: (status as any).error_message,
+                        }];
+                    });
+
+                    const inProgress = status.status !== "segmented" &&
+                                       status.status !== "failed" &&
+                                       status.status !== "ready";
+                    if (inProgress) startPolling(uploadId, status.total_frames);
+                } catch (err) {
+                    console.error(err);
                 }
-            })
-            .catch(console.error);
+            }
+        })
+        .catch(console.error);
 
         return () => {
             cancelled = true;
@@ -236,39 +255,40 @@ export default function ProjectPage({ projectId }: Props) {
     }, [projectId]);
 
     function startPolling(uploadId: string, totalFrames: number) {
-        setProcessing({
-            uploadId,
-            totalFrames,
-            framesProcessed: 0,
-            status: "processing",
-        });
+    setProcessingList(prev => {
+        if (prev.find(p => p.uploadId === uploadId)) return prev;
+        return [...prev, { uploadId, totalFrames, framesProcessed: 0, status: "processing" }];
+    });
 
-        pollingRef.current = setInterval(async () => {
-            try {
-                const data = await api.getProjectFrames(projectId);
-                setFrames(data.frames as FrameRow[]);
-                rebuildDetections(data.frames as FrameRow[]);
+    const intervalId = setInterval(async () => {
+        try {
+            const status = await api.getUploadStatus(uploadId);
 
-                const total = data.frames.length;
-                const processed = data.frames.filter(f => f.status === "segmented").length;
+            setProcessingList(prev => prev.map(p =>
+                p.uploadId === uploadId
+                    ? {
+                        ...p,
+                        totalFrames: status.total_frames,
+                        framesProcessed: status.frames_processed,
+                        status: status.status,
+                        errorMessage: (status as any).error_message,
+                    }
+                    : p
+            ));
 
-                setProcessing({
-                    uploadId,
-                    totalFrames: total,
-                    framesProcessed: processed,
-                    status: processed === total ? "ready" : "processing",
-                });
+            const data = await api.getProjectFrames(projectId);
+            setFrames(data.frames as FrameRow[]);
+            rebuildDetections(data.frames as FrameRow[]);
 
-                if (processed === total) {
-                    if (pollingRef.current) clearInterval(pollingRef.current);
-                    pollingRef.current = null;
-                    setProcessing(null);
-                }
+            const done = status.status === "segmented" ||
+                         status.status === "failed" ||
+                         status.status === "ready";
+
+            if (done) clearInterval(intervalId);
+
             } catch (err) {
                 console.error(err);
-                if (pollingRef.current) clearInterval(pollingRef.current);
-                pollingRef.current = null;
-                setProcessing(null);
+                clearInterval(intervalId);
             }
         }, 3000);
     }
@@ -340,33 +360,33 @@ export default function ProjectPage({ projectId }: Props) {
             {/* MAIN */}
             <div className={styles.main}>
                 {screen === "gallery" && (
-                    <GalleryScreen
-                        project={project}
-                        frames={frames}
-                        frameStatus={frameStatus}
-                        detectionsByFrame={detections}
-                        statusFilter={statusFilter}
-                        setStatusFilter={setStatusFilter}
-                        search={search}
-                        setSearch={setSearch}
-                        selectedDetectionId={selectedDetectionId}
-                        setSelectedDetectionId={setSelectedDetectionId}
-                        selectedFrame={selectedFrame}
-                        selectedFrameDetections={selectedFrameDetections}
-                        reviewedCount={reviewed}
-                        needsReviewCount={needsReview}
-                        totalDetections={total}
-                        pct={pct}
-                        processing={processing}
-                        onUpload={() => setShowUpload(true)}
-                        onStartAnnotating={() => setScreen("annotate")}
-                        onOpenInAnnotator={(frameId, detectionId) => {
-                            setAnnotateTarget({ frameId, detectionId });
-                            setScreen("annotate");
-                        }}
-                        onOpenReview={(d) => setReviewDetection(d)}
-                    />
-                )}
+                <GalleryScreen
+                    project={project}
+                    frames={frames}
+                    frameStatus={frameStatus}
+                    detectionsByFrame={detections}
+                    statusFilter={statusFilter}
+                    setStatusFilter={setStatusFilter}
+                    search={search}
+                    setSearch={setSearch}
+                    selectedDetectionId={selectedDetectionId}
+                    setSelectedDetectionId={setSelectedDetectionId}
+                    selectedFrame={selectedFrame}
+                    selectedFrameDetections={selectedFrameDetections}
+                    reviewedCount={reviewed}
+                    needsReviewCount={needsReview}
+                    totalDetections={total}
+                    pct={pct}
+                    processingList={processingList}                                       
+                    onDismissUpload={() => setProcessingList([])}
+                    onUpload={() => setShowUpload(true)}
+                    onStartAnnotating={() => setScreen("annotate")}
+                    onOpenReview={(d) => setReviewDetection(d)}
+                    onOpenInAnnotator={(frameId, detectionId) => {   
+                        setScreen("annotate");
+                    }}
+                />
+            )}
                 {screen === "annotate" && (
                     <AnnotateScreen
                         project={project}
@@ -582,7 +602,8 @@ function GalleryScreen({
     needsReviewCount,
     totalDetections,
     pct,
-    processing,
+    processingList,
+    onDismissUpload,
     onUpload,
     onStartAnnotating,
     onOpenReview,
@@ -604,7 +625,8 @@ function GalleryScreen({
     needsReviewCount: number;
     totalDetections: number;
     pct: number;
-    processing: ProcessingStatus | null;
+    processingList: ProcessingStatus [];
+    onDismissUpload: (id: string) => void;
     onUpload: () => void;
     onStartAnnotating: () => void;
     onOpenReview: (d: Detection) => void;
@@ -649,26 +671,59 @@ function GalleryScreen({
             </div>
 
             {/* Processing bar */}
-            {processing && (
-                <div className={styles.processingBar}>
-                    <div className={styles.processingSpinner} />
-                    <span className={styles.processingLabel}>
-                        Analysing frames — {processing.framesProcessed} of{" "}
-                        {processing.totalFrames} processed
-                    </span>
-                    <div className={styles.processingTrack}>
-                        <div
-                            className={styles.processingFill}
-                            style={{
-                                width: `${processing.totalFrames > 0
-                                    ? (processing.framesProcessed / processing.totalFrames) * 100
-                                    : 0
-                                    }%`,
-                            }}
-                        />
-                    </div>
+            {processingList.length > 0 && (() => {
+    const p = processingList[processingList.length - 1];
+    const isDone = p.status === "segmented" || p.status === "ready" || p.status === "completed" || p.status === "done";
+    const isFailed = p.status === "failed";
+    const pct = p.totalFrames > 0 ? (p.framesProcessed / p.totalFrames) * 100 : 0;
+
+    return (
+        <div
+            className={styles.processingBar}
+            style={{
+                background: isFailed ? "rgba(220,50,50,0.08)" : isDone ? "rgba(94,201,154,0.08)" : undefined,
+                borderBottom: `1px solid ${isFailed ? "rgba(220,50,50,0.2)" : isDone ? "rgba(94,201,154,0.2)" : "rgba(255,255,255,0.06)"}`,
+            }}
+        >
+            {!isDone && !isFailed && <div className={styles.processingSpinner} />}
+            {isDone && <span style={{ fontSize: 14, color: "var(--success)", flexShrink: 0 }}>✓</span>}
+            {isFailed && <span style={{ fontSize: 14, color: "var(--danger)", flexShrink: 0 }}>✕</span>}
+
+            <span className={styles.processingLabel} style={{
+                color: isFailed ? "var(--danger)" : isDone ? "var(--success)" : undefined,
+            }}>
+                {isDone
+                    ? `Upload complete — ${p.framesProcessed} of ${p.totalFrames} frames processed`
+                    : isFailed
+                    ? `Upload failed${p.errorMessage ? `: ${p.errorMessage.slice(0, 80)}` : ""}`
+                    : `Analysing frames — ${p.framesProcessed} of ${p.totalFrames} processed`}
+            </span>
+
+            {!isFailed && (
+                <div className={styles.processingTrack}>
+                    <div
+                        className={styles.processingFill}
+                        style={{
+                            width: `${isDone ? 100 : pct}%`,
+                            background: isDone ? "var(--success)" : undefined,
+                            transition: "width 0.4s ease",
+                        }}
+                    />
                 </div>
             )}
+            {(isDone || isFailed) && (
+                <button
+                    onClick={() => onDismissUpload(p.uploadId)}
+                    style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        color: "var(--text3)", fontSize: 18, lineHeight: 1,
+                        padding: "0 4px", flexShrink: 0,
+                    }}
+                >×</button>
+            )}
+        </div>
+    );
+})()}
 
             {/* Stats strip */}
             <div className={styles.statsStrip}>
@@ -760,7 +815,7 @@ function GalleryScreen({
                             return (
                                 <div className={styles.emptyState}>
                                     {frames.length === 0
-                                        ? processing
+                                        ? processingList.some(p => p.status === "processing")
                                             ? "Waiting for frames…"
                                             : "No frames yet — upload media to get started."
                                         : "No detections match this filter."}
@@ -1128,11 +1183,12 @@ function AnnotateScreen({
     initialDetectionId: string | null;
     onEntered: () => void;
 }) {
+    const readyFrames = frames.filter(f => f.status !== "queued");
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
-        initialFrameId ?? frames[0]?.id ?? null
+        initialFrameId ?? readyFrames[0]?.id ?? null
     );
-    const selectedFrame = frames.find(f => f.id === selectedFrameId);
-    const selectedFrameIndex = frames.findIndex(f => f.id === selectedFrameId);
+    const selectedFrame = readyFrames.find(f => f.id === selectedFrameId);
+    const selectedFrameIndex = readyFrames.findIndex(f => f.id === selectedFrameId);
 
     if (!selectedFrameId || !selectedFrame) {
         return (
@@ -1149,7 +1205,7 @@ function AnnotateScreen({
                                 Grid
                             </button>
                             <button
-                                onClick={() => setSelectedFrameId(frames[0]?.id ?? null)}
+                                onClick={() => setSelectedFrameId(readyFrames[0]?.id ?? null)}
                                 className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnSingle}`}
                             >
                                 <Tag size={13} />
@@ -1160,7 +1216,7 @@ function AnnotateScreen({
                 </div>
                 <div style={{ flex: 1, padding: "20px 24px", overflow: "auto" }}>
                     <div style={{ fontSize: 13, color: "var(--text3)", marginBottom: 12 }}>
-                        {frames.length} frame{frames.length !== 1 ? "s" : ""} — click to annotate
+                        {readyFrames.length} frame{readyFrames.length !== 1 ? "s" : ""} — click to annotate
                     </div>
                     <div
                         className="grid"
@@ -1169,7 +1225,7 @@ function AnnotateScreen({
                             gap: 12,
                         }}
                     >
-                        {frames.map(f => (
+                        {readyFrames.map(f => (
                             <div
                                 key={f.id}
                                 onClick={() => setSelectedFrameId(f.id)}
@@ -1207,13 +1263,13 @@ function AnnotateScreen({
     return (
         <AnnotateReview
             project={project}
-            frames={frames}
+            frames={readyFrames}
             initialFrameIndex={selectedFrameIndex}
             projectId={projectId}
             initialDetectionId={initialDetectionId}
             onEntered={onEntered}
             onBack={() => setSelectedFrameId(null)}
-            onFrameChange={i => setSelectedFrameId(frames[i]?.id ?? null)}
+            onFrameChange={i => setSelectedFrameId(readyFrames[i]?.id ?? null)}
         />
     );
 }
