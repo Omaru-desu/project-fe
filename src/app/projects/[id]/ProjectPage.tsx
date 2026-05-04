@@ -30,6 +30,7 @@ import {
     SkipBack,
     ChevronRight,
     Fish,
+    LayoutGrid,
     type LucideIcon,
 } from "lucide-react";
 import { Detection } from "../../../types/project";
@@ -1078,17 +1079,25 @@ function AnnotateScreen({
                         <div className={styles.topbarTitle}>Annotate</div>
                         <div className={styles.topbarSubtitle}>{project.name}</div>
                     </div>
+                    <div className={styles.topbarActions}>
+                        <div className={styles.viewSwitch}>
+                            <button className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnActive}`}>
+                                <LayoutGrid size={13} />
+                                Grid
+                            </button>
+                            <button
+                                onClick={() => setSelectedFrameId(frames[0]?.id ?? null)}
+                                className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnSingle}`}
+                            >
+                                <Tag size={13} />
+                                Single
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div style={{ flex: 1, padding: "20px 24px", overflow: "auto" }}>
-                    <div
-                        style={{
-                            fontSize: 13,
-                            color: "var(--text3)",
-                            marginBottom: 12,
-                        }}
-                    >
-                        {frames.length} frame{frames.length !== 1 ? "s" : ""} — click to
-                        annotate
+                    <div style={{ fontSize: 13, color: "var(--text3)", marginBottom: 12 }}>
+                        {frames.length} frame{frames.length !== 1 ? "s" : ""} — click to annotate
                     </div>
                     <div
                         className="grid"
@@ -1114,35 +1123,14 @@ function AnnotateScreen({
                                 <img
                                     src={f.frame_url}
                                     alt={f.source_filename}
-                                    style={{
-                                        width: "100%",
-                                        height: 140,
-                                        objectFit: "cover",
-                                        display: "block",
-                                    }}
+                                    style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
                                 />
                                 <div style={{ padding: "8px 10px" }}>
-                                    <div
-                                        style={{
-                                            fontSize: 12,
-                                            fontWeight: 600,
-                                            color: "var(--text1)",
-                                            whiteSpace: "nowrap",
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis",
-                                        }}
-                                    >
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                         {f.source_filename}
                                     </div>
-                                    <div
-                                        style={{
-                                            fontSize: 11,
-                                            color: "var(--text3)",
-                                            marginTop: 2,
-                                        }}
-                                    >
-                                        {f.detections.length} detection
-                                        {f.detections.length !== 1 ? "s" : ""}
+                                    <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                                        {f.detections.length} detection{f.detections.length !== 1 ? "s" : ""}
                                     </div>
                                 </div>
                             </div>
@@ -1180,59 +1168,178 @@ function AnnotateReview({
     onBack: () => void;
     onFrameChange: (i: number) => void;
 }) {
+    // refs
+    const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const imgRef = useRef<HTMLImageElement | null>(null);
+    const rafRef = useRef<number>(0);
+
+    // frame navigation
     const [activeFrameIndex, setActiveFrameIndex] = useState(initialFrameIndex);
     const frame = frames[activeFrameIndex];
 
+    // data
     const [detections, setDetections] = useState<any[]>([]);
-    const [activeDetectionId, setActiveDetectionId] = useState<string | null>(null);
+    const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
     const [loadingDets, setLoadingDets] = useState(false);
+    const [loadingBboxes, setLoadingBboxes] = useState(false);
+    const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(new Map());
+    const detectionGroups = useMemo(() => groupDetections(detections), [detections]);
+
+    // selection
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const [activeType, setActiveType] = useState<"det" | "bbox" | null>(null);
+    const [hovId, setHovId] = useState<string | null>(null);
     const [editLabel, setEditLabel] = useState("");
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
-    const detectionGroups = useMemo(
-        () => groupDetections(detections),
-        [detections]
-    );
-    const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(
-        new Map()
-    );
 
-    const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
-    const [activeBboxId, setActiveBboxId] = useState<string | null>(null);
-    const [loadingBboxes, setLoadingBboxes] = useState(false);
+    // transform (scale + offset in canvas pixels)
+    const [tf, setTf] = useState({ scale: 1, ox: 0, oy: 0 });
+    const tfRef = useRef(tf);
+    tfRef.current = tf;
+    const fitTfRef = useRef({ scale: 1, ox: 0, oy: 0 });
+    const [zoomLevel, setZoomLevel] = useState(1);
+    const zoomLevelRef = useRef(1);
 
-    const [drawMode, setDrawMode] = useState(false);
-    const [isDrawing, setIsDrawing] = useState(false);
-    const drawStart = useRef<{ x: number; y: number } | null>(null);
-    const drawCurrent = useRef<{ x: number; y: number } | null>(null);
+    // mode
+    const [mode, setMode] = useState<"select" | "draw">("select");
+    const [hideDetections, setHideDetections] = useState(false);
 
-    const [pendingBox, setPendingBox] = useState<{
-        x1: number;
-        y1: number;
-        x2: number;
-        y2: number;
-    } | null>(null);
+    // draw state
+    const [pendingBox, setPendingBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const [labelInput, setLabelInput] = useState("");
     const [savingBbox, setSavingBbox] = useState(false);
+    const drawStartRef = useRef<{ ix: number; iy: number } | null>(null);
+    const drawCurRef = useRef<{ ix: number; iy: number } | null>(null);
 
+    // interaction refs
+    const dragRef = useRef<{ id: string; type: "det" | "bbox"; sx: number; sy: number; ob: number[]; moved: boolean } | null>(null);
+    const resizeRef = useRef<{ id: string; type: "det" | "bbox"; corner: "tl" | "tr" | "bl" | "br"; sx: number; sy: number; ob: number[] } | null>(null);
+    const panRef = useRef<{ startCx: number; startCy: number; startOx: number; startOy: number } | null>(null);
+    const [isPanning, setIsPanning] = useState(false);
+
+    // coord helpers
+    function toCanvas(ix: number, iy: number) {
+        const { scale, ox, oy } = tfRef.current;
+        return { cx: ix * scale + ox, cy: iy * scale + oy };
+    }
+    function toImg(cx: number, cy: number) {
+        const { scale, ox, oy } = tfRef.current;
+        return { ix: (cx - ox) / scale, iy: (cy - oy) / scale };
+    }
+    function clientToCanvas(e: React.MouseEvent) {
+        const c = canvasRef.current!;
+        const r = c.getBoundingClientRect();
+        return {
+            cx: (e.clientX - r.left) * (c.width / r.width),
+            cy: (e.clientY - r.top) * (c.height / r.height),
+        };
+    }
+    function cornerHit(cx: number, cy: number, box: number[]): "tl" | "tr" | "bl" | "br" | null {
+        const [x1, y1, x2, y2] = box;
+        const { cx: bx1, cy: by1 } = toCanvas(x1, y1);
+        const { cx: bx2, cy: by2 } = toCanvas(x2, y2);
+        const R = 7;
+        if (Math.abs(cx - bx1) < R && Math.abs(cy - by1) < R) return "tl";
+        if (Math.abs(cx - bx2) < R && Math.abs(cy - by1) < R) return "tr";
+        if (Math.abs(cx - bx1) < R && Math.abs(cy - by2) < R) return "bl";
+        if (Math.abs(cx - bx2) < R && Math.abs(cy - by2) < R) return "br";
+        return null;
+    }
+    function inBox(cx: number, cy: number, box: number[]) {
+        const { ix, iy } = toImg(cx, cy);
+        const [x1, y1, x2, y2] = box;
+        return ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2;
+    }
+
+    // zoom
+    const applyZoom = useCallback((newZ: number) => {
+        const fit = fitTfRef.current;
+        const c = canvasRef.current;
+        if (!c) return;
+        const cx = c.width / 2;
+        const cy = c.height / 2;
+        const cur = tfRef.current;
+        const newScale = fit.scale * newZ;
+        const ratio = newScale / cur.scale;
+        const newTf = { scale: newScale, ox: cx - (cx - cur.ox) * ratio, oy: cy - (cy - cur.oy) * ratio };
+        setTf(newTf);
+        tfRef.current = newTf;
+        setZoomLevel(newZ);
+        zoomLevelRef.current = newZ;
+    }, []);
+    const zoomIn = useCallback(() => applyZoom(Math.min(zoomLevelRef.current * 1.4, 20)), [applyZoom]);
+    const zoomOut = useCallback(() => applyZoom(Math.max(zoomLevelRef.current / 1.4, 0.1)), [applyZoom]);
+    const zoomReset = useCallback(() => applyZoom(1), [applyZoom]);
+
+    // wheel zoom
+    useEffect(() => {
+        const c = canvasRef.current;
+        if (!c) return;
+        function onWheel(e: WheelEvent) {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+            applyZoom(Math.min(Math.max(zoomLevelRef.current * factor, 0.1), 20));
+        }
+        c.addEventListener("wheel", onWheel, { passive: false });
+        return () => c.removeEventListener("wheel", onWheel);
+    }, [applyZoom]);
+
+    // fit image to container
+    const fitImage = useCallback(() => {
+        const c = canvasRef.current;
+        const img = imgRef.current;
+        if (!c || !img || !img.naturalWidth) return;
+        const scale = Math.min(c.width / img.naturalWidth, c.height / img.naturalHeight) * 0.95;
+        const ox = (c.width - img.naturalWidth * scale) / 2;
+        const oy = (c.height - img.naturalHeight * scale) / 2;
+        const newTf = { scale, ox, oy };
+        fitTfRef.current = newTf;
+        setTf(newTf);
+        tfRef.current = newTf;
+        setZoomLevel(1);
+        zoomLevelRef.current = 1;
+    }, []);
+
+    // load image on frame change
+    useEffect(() => {
+        if (!frame?.frame_url) return;
+        const img = new Image();
+        img.onload = () => { imgRef.current = img; fitImage(); };
+        img.src = frame.frame_url;
+    }, [frame?.frame_url, fitImage]);
+
+    // resize observer
+    useEffect(() => {
+        const wrap = containerRef.current;
+        if (!wrap) return;
+        const obs = new ResizeObserver(() => {
+            const c = canvasRef.current;
+            if (!c) return;
+            c.width = wrap.clientWidth;
+            c.height = wrap.clientHeight;
+            fitImage();
+        });
+        obs.observe(wrap);
+        return () => obs.disconnect();
+    }, [fitImage]);
+
+    // load data on frame change
     useEffect(() => {
         if (!frame) return;
-        setActiveDetectionId(null);
-        setActiveBboxId(null);
+        setActiveId(null);
+        setActiveType(null);
         setEditLabel("");
         setSaveError(null);
         setPendingBox(null);
-        setDrawMode(false);
-        setIsDrawing(false);
+        drawStartRef.current = null;
+        drawCurRef.current = null;
 
         setLoadingDets(true);
-        api
-            .getFrameDetections(projectId, frame.id)
+        api.getFrameDetections(projectId, frame.id)
             .then(data => {
-                const dets = (data.detections ?? data).filter(
-                    (d: any) => d.annotation_source !== "human"
-                );
+                const dets = (data.detections ?? data).filter((d: any) => d.annotation_source !== "human");
                 setDetections(dets);
                 setLabelColorMap(buildLabelColorMap(dets));
             })
@@ -1240,233 +1347,299 @@ function AnnotateReview({
             .finally(() => setLoadingDets(false));
 
         setLoadingBboxes(true);
-        api
-            .getBoundingBoxes(projectId, frame.id)
+        api.getBoundingBoxes(projectId, frame.id)
             .catch(() => [] as BoundingBox[])
             .then(data => setBoundingBoxes(data))
             .finally(() => setLoadingBboxes(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frame?.id, projectId]);
 
+    // sync edit label
     useEffect(() => {
-        if (!activeDetectionId) {
-            setEditLabel("");
-            return;
-        }
-        const det = detections.find(d => d.id === activeDetectionId);
+        if (!activeId || activeType !== "det") { setEditLabel(""); return; }
+        const det = detections.find(d => d.id === activeId);
         setEditLabel(det?.display_label ?? "");
         setSaveError(null);
-    }, [activeDetectionId, detections]);
+    }, [activeId, activeType, detections]);
 
-    const redraw = useCallback(() => {
-        const canvas = canvasRef.current;
-        if (!canvas || !frame) return;
-        const ctx = canvas.getContext("2d");
+    // draw loop
+    const draw = useCallback(() => {
+        const c = canvasRef.current;
+        const img = imgRef.current;
+        if (!c || !img) return;
+        const ctx = c.getContext("2d");
         if (!ctx) return;
+        const { scale, ox, oy } = tfRef.current;
 
-        const img = new Image();
-        img.onload = () => {
-            const maxW = canvas.parentElement?.clientWidth ?? 800;
-            const maxH = canvas.parentElement?.clientHeight ?? 500;
-            const scale = Math.min(
-                maxW / img.naturalWidth,
-                maxH / img.naturalHeight,
-                1
-            );
-            canvas.width = img.naturalWidth * scale;
-            canvas.height = img.naturalHeight * scale;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.fillStyle = "#f4f6fb";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, ox, oy, img.naturalWidth * scale, img.naturalHeight * scale);
 
+        if (!hideDetections) {
             detectionGroups.forEach(({ primary: d }) => {
                 const [x1, y1, x2, y2] = d.bbox;
-                const sx1 = x1 * scale,
-                    sy1 = y1 * scale;
-                const sw = (x2 - x1) * scale,
-                    sh = (y2 - y1) * scale;
-                const color =
-                    labelColorMap.get(d.display_label || "Unknown") ?? "#888";
-                const isActive = d.id === activeDetectionId;
-
-                if (isActive) {
-                    ctx.shadowColor = color;
-                    ctx.shadowBlur = 12;
-                }
-                ctx.strokeStyle = color;
-                ctx.lineWidth = isActive ? 2 : 1.5;
+                const sx1 = x1 * scale + ox, sy1 = y1 * scale + oy;
+                const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
+                const color = labelColorMap.get(d.display_label || "Unknown") ?? "#888";
+                const isActive = d.id === activeId && activeType === "det";
+                const isHov = d.id === hovId;
+                ctx.save();
+                if (isActive) { ctx.shadowColor = color; ctx.shadowBlur = 10; }
+                ctx.strokeStyle = isHov ? "#fff" : color;
+                ctx.lineWidth = isActive || isHov ? 2 : 1.5;
                 ctx.setLineDash([]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
                 ctx.shadowBlur = 0;
-
-                const label =
-                    editLabel && isActive
-                        ? `${editLabel} · ${Math.round((d.score ?? 0) * 100)}%`
-                        : `${d.display_label || "Unknown"} · ${Math.round((d.score ?? 0) * 100)}%`;
-                ctx.font = "bold 11px var(--font-dm-mono), 'DM Mono', monospace";
+                ctx.font = "bold 11px 'DM Mono', monospace";
+                const label = `${d.display_label || "Unknown"} ${Math.round((d.score ?? 0) * 100)}%`;
                 const tw = ctx.measureText(label).width;
-                const labelY = sy1 < 20 ? sy1 + 18 : sy1;
                 ctx.fillStyle = color;
-                ctx.fillRect(sx1, Math.max(0, labelY - 18), tw + 10, 18);
+                ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 8, 18);
                 ctx.fillStyle = "#fff";
-                ctx.fillText(label, sx1 + 5, labelY - 4);
+                ctx.fillText(label, sx1 + 4, sy1 - 4);
+                if (isActive) {
+                    [[sx1, sy1], [sx1 + sw, sy1], [sx1, sy1 + sh], [sx1 + sw, sy1 + sh]].forEach(([hx, hy]) => {
+                        ctx.fillStyle = "#fff"; ctx.fillRect(hx - 4, hy - 4, 8, 8);
+                        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(hx - 4, hy - 4, 8, 8);
+                    });
+                }
+                ctx.restore();
             });
 
             boundingBoxes.forEach(b => {
                 const [x1, y1, x2, y2] = b.bbox;
-                const sx1 = x1 * scale,
-                    sy1 = y1 * scale;
-                const sw = (x2 - x1) * scale,
-                    sh = (y2 - y1) * scale;
-                const isActive = b.id === activeBboxId;
-                const color =
-                    labelColorMap.get(b.display_label) ?? "#5ec99a";
-
-                ctx.strokeStyle = isActive ? "#fff" : color;
-                ctx.lineWidth = isActive ? 2 : 1.5;
+                const sx1 = x1 * scale + ox, sy1 = y1 * scale + oy;
+                const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
+                const isActive = b.id === activeId && activeType === "bbox";
+                const isHov = b.id === hovId;
+                const color = labelColorMap.get(b.display_label) ?? "#34d399";
+                ctx.save();
+                if (isActive) { ctx.shadowColor = color; ctx.shadowBlur = 10; }
+                ctx.strokeStyle = isHov ? "#fff" : color;
+                ctx.lineWidth = isActive || isHov ? 2 : 1.5;
                 ctx.setLineDash([6, 3]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
                 ctx.setLineDash([]);
-                ctx.font = "bold 11px var(--font-dm-mono), 'DM Mono', monospace";
+                ctx.shadowBlur = 0;
+                ctx.font = "bold 11px 'DM Mono', monospace";
                 const tw = ctx.measureText(b.display_label).width;
-                const labelY = sy1 < 20 ? sy1 + 18 : sy1;
                 ctx.fillStyle = color;
-                ctx.fillRect(sx1, Math.max(0, labelY - 18), tw + 10, 18);
-                ctx.fillStyle = "#FFF"; 
-                ctx.fillText(b.display_label, sx1 + 5, labelY - 4);
+                ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 8, 18);
+                ctx.fillStyle = "#fff";
+                ctx.fillText(b.display_label, sx1 + 4, sy1 - 4);
+                if (isActive) {
+                    [[sx1, sy1], [sx1 + sw, sy1], [sx1, sy1 + sh], [sx1 + sw, sy1 + sh]].forEach(([hx, hy]) => {
+                        ctx.fillStyle = "#fff"; ctx.fillRect(hx - 4, hy - 4, 8, 8);
+                        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(hx - 4, hy - 4, 8, 8);
+                    });
+                }
+                ctx.restore();
             });
+        }
 
-            if (isDrawing && drawStart.current && drawCurrent.current) {
-                const { x: sx, y: sy } = drawStart.current;
-                const { x: ex, y: ey } = drawCurrent.current;
+        // live drag preview — refs, always current
+        if (drawStartRef.current && drawCurRef.current) {
+            const { scale: s, ox: ox2, oy: oy2 } = tfRef.current;
+            const sx = drawStartRef.current.ix * s + ox2;
+            const sy = drawStartRef.current.iy * s + oy2;
+            const ex = drawCurRef.current.ix * s + ox2;
+            const ey = drawCurRef.current.iy * s + oy2;
+            ctx.save();
+            ctx.strokeStyle = "#4a6fc4";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 3]);
+            ctx.strokeRect(Math.min(sx, ex), Math.min(sy, ey), Math.abs(ex - sx), Math.abs(ey - sy));
+            ctx.fillStyle = "rgba(74, 111, 196, 0.1)";
+            ctx.fillRect(Math.min(sx, ex), Math.min(sy, ey), Math.abs(ex - sx), Math.abs(ey - sy));
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
 
-                // Transparent fill mask
-                ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
-                ctx.fillRect(sx, sy, ex - sx, ey - sy);
+        // pending box — stays on canvas while label popup is open
+        if (pendingBox) {
+            const { scale: s, ox: ox2, oy: oy2 } = tfRef.current;
+            const sx = pendingBox.x1 * s + ox2;
+            const sy = pendingBox.y1 * s + oy2;
+            const w = (pendingBox.x2 - pendingBox.x1) * s;
+            const h = (pendingBox.y2 - pendingBox.y1) * s;
+            ctx.save();
+            ctx.strokeStyle = "#4a6fc4";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 3]);
+            ctx.strokeRect(sx, sy, w, h);
+            ctx.fillStyle = "rgba(74, 111, 196, 0.1)";
+            ctx.fillRect(sx, sy, w, h);
+            ctx.setLineDash([]);
+            // label tag
+            const tag = labelInput || "New box";
+            ctx.font = "bold 11px 'DM Mono', monospace";
+            const tw = ctx.measureText(tag).width;
+            ctx.fillStyle = "#4a6fc4";
+            ctx.fillRect(sx, Math.max(0, sy - 18), tw + 8, 18);
+            ctx.fillStyle = "#fff";
+            ctx.fillText(tag, sx + 4, sy - 4);
+            ctx.restore();
+        }
+    }, [detectionGroups, boundingBoxes, labelColorMap, activeId, activeType, hovId, hideDetections, tf, pendingBox, labelInput]);
 
-                // Dashed border
-                ctx.strokeStyle = "#fff";
-                ctx.lineWidth = 2;
-                ctx.setLineDash([4, 3]);
-                ctx.strokeRect(sx, sy, ex - sx, ey - sy);
-                ctx.setLineDash([]);
-            }
-        };
-        img.src = frame.frame_url;
-    }, [
-        frame,
-        detectionGroups,
-        boundingBoxes,
-        activeDetectionId,
-        activeBboxId,
-        labelColorMap,
-        editLabel,
-        isDrawing,
-    ]);
+    const drawRef = useRef(draw);
+    drawRef.current = draw;
 
     useEffect(() => {
-        redraw();
-    }, [redraw]);
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(draw);
+    }, [draw]);
 
-    function canvasCoords(e: React.MouseEvent<HTMLCanvasElement>) {
-        const canvas = canvasRef.current!;
-        const rect = canvas.getBoundingClientRect();
-        return {
-            x: (e.clientX - rect.left) * (canvas.width / rect.width),
-            y: (e.clientY - rect.top) * (canvas.height / rect.height),
-        };
-    }
+    // keyboard shortcuts
+    useEffect(() => {
+        function onKey(e: KeyboardEvent) {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            if ((e.key === "Delete" || e.key === "Backspace") && activeId && activeType === "bbox") handleDeleteBbox(activeId);
+            if (e.key === "Escape") { setActiveId(null); setActiveType(null); setPendingBox(null); setMode("select"); }
+            if (e.key === "h" || e.key === "H") setHideDetections(v => !v);
+            if (e.key === "d" || e.key === "D") { setMode("draw"); setPendingBox(null); }
+            if (e.key === "s" || e.key === "S") setMode("select");
+            if (e.key === "ArrowLeft") goToFrame(Math.max(0, activeFrameIndex - 1));
+            if (e.key === "ArrowRight") goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1));
+        }
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeId, activeType, activeFrameIndex, frames.length]);
 
+    // mouse handlers
     function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (!drawMode) return;
-        const pos = canvasCoords(e);
-        drawStart.current = pos;
-        drawCurrent.current = pos;
-        setIsDrawing(true);
+        if (e.button !== 0) return;
+        const { cx, cy } = clientToCanvas(e);
+        if (mode === "draw") {
+            const { ix, iy } = toImg(cx, cy);
+            drawStartRef.current = { ix, iy };
+            drawCurRef.current = { ix, iy };
+            return;
+        }
+        const allBoxes = [
+            ...(!hideDetections ? detectionGroups.map(g => ({ id: g.primary.id, type: "det" as const, box: g.primary.bbox })) : []),
+            ...(!hideDetections ? boundingBoxes.map(b => ({ id: b.id, type: "bbox" as const, box: b.bbox })) : []),
+        ];
+        if (activeId) {
+            const active = allBoxes.find(b => b.id === activeId);
+            if (active) {
+                const corner = cornerHit(cx, cy, active.box);
+                if (corner) {
+                    resizeRef.current = { id: active.id, type: active.type, corner, sx: cx, sy: cy, ob: [...active.box] };
+                    return;
+                }
+            }
+        }
+        for (const b of [...allBoxes].reverse()) {
+            if (inBox(cx, cy, b.box)) {
+                dragRef.current = { id: b.id, type: b.type, sx: cx, sy: cy, ob: [...b.box], moved: false };
+                setActiveId(b.id);
+                setActiveType(b.type);
+                return;
+            }
+        }
+        panRef.current = { startCx: cx, startCy: cy, startOx: tfRef.current.ox, startOy: tfRef.current.oy };
+        setIsPanning(true);
+        setActiveId(null);
+        setActiveType(null);
     }
 
     function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (!isDrawing || !drawMode) return;
-        drawCurrent.current = canvasCoords(e);
-        redraw();
+        const { cx, cy } = clientToCanvas(e);
+        if (mode === "draw" && drawStartRef.current) {
+            const { ix, iy } = toImg(cx, cy);
+            drawCurRef.current = { ix, iy };
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = requestAnimationFrame(() => drawRef.current());
+            return;
+        }
+        if (resizeRef.current) {
+            const r = resizeRef.current;
+            const dix = (cx - r.sx) / tfRef.current.scale;
+            const diy = (cy - r.sy) / tfRef.current.scale;
+            let [x1, y1, x2, y2] = r.ob;
+            if (r.corner === "tl") { x1 += dix; y1 += diy; }
+            else if (r.corner === "tr") { x2 += dix; y1 += diy; }
+            else if (r.corner === "bl") { x1 += dix; y2 += diy; }
+            else { x2 += dix; y2 += diy; }
+            updateBoxLocal(r.id, r.type, [Math.min(x1,x2), Math.min(y1,y2), Math.max(x1,x2), Math.max(y1,y2)]);
+            return;
+        }
+        if (dragRef.current) {
+            const d = dragRef.current;
+            if (Math.abs(cx - d.sx) > 3 || Math.abs(cy - d.sy) > 3) d.moved = true;
+            if (d.moved) {
+                const dix = (cx - d.sx) / tfRef.current.scale;
+                const diy = (cy - d.sy) / tfRef.current.scale;
+                const [x1, y1, x2, y2] = d.ob;
+                const w = x2 - x1, h = y2 - y1;
+                updateBoxLocal(d.id, d.type, [x1 + dix, y1 + diy, x1 + dix + w, y1 + diy + h]);
+            }
+            return;
+        }
+        if (panRef.current) {
+            const p = panRef.current;
+            const newTf = { ...tfRef.current, ox: p.startOx + (cx - p.startCx), oy: p.startOy + (cy - p.startCy) };
+            setTf(newTf);
+            tfRef.current = newTf;
+            return;
+        }
+        const { ix, iy } = toImg(cx, cy);
+        let found: string | null = null;
+        if (!hideDetections) {
+            for (const b of [...boundingBoxes].reverse()) {
+                const [x1, y1, x2, y2] = b.bbox;
+                if (ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2) { found = b.id; break; }
+            }
+            if (!found) for (const { primary: d } of [...detectionGroups].reverse()) {
+                const [x1, y1, x2, y2] = d.bbox;
+                if (ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2) { found = d.id; break; }
+            }
+        }
+        setHovId(found);
     }
 
     function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (!isDrawing || !drawMode || !drawStart.current) return;
-        const { x: ex, y: ey } = canvasCoords(e);
-        const { x: sx, y: sy } = drawStart.current;
-        setIsDrawing(false);
-        drawStart.current = null;
-        if (Math.abs(ex - sx) < 10 || Math.abs(ey - sy) < 10) return;
-        setPendingBox({
-            x1: Math.min(sx, ex),
-            y1: Math.min(sy, ey),
-            x2: Math.max(sx, ex),
-            y2: Math.max(sy, ey),
-        });
-        setLabelInput("");
+        if (drawStartRef.current) {
+            const { cx, cy } = clientToCanvas(e);
+            const { ix: ex, iy: ey } = toImg(cx, cy);
+            const { ix: sx, iy: sy } = drawStartRef.current;
+            drawStartRef.current = null;
+            drawCurRef.current = null;
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = requestAnimationFrame(() => drawRef.current());
+            if (Math.abs(ex - sx) > 3 || Math.abs(ey - sy) > 3) {
+                setPendingBox({ x1: Math.min(sx, ex), y1: Math.min(sy, ey), x2: Math.max(sx, ex), y2: Math.max(sy, ey) });
+                setLabelInput("Unknown");
+            }
+            return;
+        }
+        resizeRef.current = null;
+        dragRef.current = null;
+        panRef.current = null;
+        setIsPanning(false);
     }
 
-    function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (drawMode) return;
-        const canvas = canvasRef.current!;
-        const { x: mx, y: my } = canvasCoords(e);
-        const scale = canvas.width / ((frame as any)?.natural_width ?? canvas.width);
-
-        for (const b of [...boundingBoxes].reverse()) {
-            const [x1, y1, x2, y2] = b.bbox;
-            if (
-                mx >= x1 * scale &&
-                mx <= x2 * scale &&
-                my >= y1 * scale &&
-                my <= y2 * scale
-            ) {
-                setActiveBboxId(b.id === activeBboxId ? null : b.id);
-                setActiveDetectionId(null);
-                return;
-            }
-        }
-        for (const d of [...detections].reverse()) {
-            const [x1, y1, x2, y2] = d.bbox;
-            if (
-                mx >= x1 * scale &&
-                mx <= x2 * scale &&
-                my >= y1 * scale &&
-                my <= y2 * scale
-            ) {
-                setActiveDetectionId(d.id === activeDetectionId ? null : d.id);
-                setActiveBboxId(null);
-                return;
-            }
-        }
-        setActiveDetectionId(null);
-        setActiveBboxId(null);
+    function updateBoxLocal(id: string, type: "det" | "bbox", newBox: number[]) {
+        if (type === "bbox") setBoundingBoxes(prev => prev.map(b => b.id === id ? { ...b, bbox: newBox as [number, number, number, number] } : b));
+        else setDetections(prev => prev.map(d => d.id === id ? { ...d, bbox: newBox } : d));
     }
 
     async function handleSaveBbox() {
         if (!pendingBox || !labelInput.trim() || !frame) return;
-        const canvas = canvasRef.current!;
-        const img = new Image();
-        img.src = frame.frame_url;
-        const scale = canvas.width / (img.naturalWidth || canvas.width);
-
         setSavingBbox(true);
         try {
             const created = await api.createBoundingBox(projectId, frame.id, {
-                bbox: [
-                    Math.round(pendingBox.x1 / scale),
-                    Math.round(pendingBox.y1 / scale),
-                    Math.round(pendingBox.x2 / scale),
-                    Math.round(pendingBox.y2 / scale),
-                ],
+                bbox: [Math.round(pendingBox.x1), Math.round(pendingBox.y1), Math.round(pendingBox.x2), Math.round(pendingBox.y2)],
                 display_label: labelInput.trim(),
             });
             setBoundingBoxes(prev => [...prev, created]);
             setPendingBox(null);
-            setDrawMode(false);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setSavingBbox(false);
-        }
+            setMode("select");
+        } catch (err) { console.error(err); }
+        finally { setSavingBbox(false); }
     }
 
     async function handleDeleteBbox(bboxId: string) {
@@ -1474,31 +1647,19 @@ function AnnotateReview({
         try {
             await api.deleteBoundingBox(projectId, frame.id, bboxId);
             setBoundingBoxes(prev => prev.filter(b => b.id !== bboxId));
-            if (activeBboxId === bboxId) setActiveBboxId(null);
-        } catch (err) {
-            console.error(err);
-        }
+            if (activeId === bboxId) { setActiveId(null); setActiveType(null); }
+        } catch (err) { console.error(err); }
     }
 
     async function handleApprove() {
-        if (!activeDetectionId || !editLabel.trim()) return;
-        setSaving(true);
-        setSaveError(null);
+        if (!activeId || activeType !== "det" || !editLabel.trim()) return;
+        setSaving(true); setSaveError(null);
         try {
-            await api.reviewDetectionLabel(activeDetectionId, editLabel.trim());
-            setDetections(prev =>
-                prev.map(d =>
-                    d.id === activeDetectionId
-                        ? { ...d, display_label: editLabel.trim(), status: "reviewed" }
-                        : d
-                )
-            );
-            setActiveDetectionId(null);
-        } catch (err: any) {
-            setSaveError(err.message ?? "Failed to save");
-        } finally {
-            setSaving(false);
-        }
+            await api.reviewDetectionLabel(activeId, editLabel.trim());
+            setDetections(prev => prev.map(d => d.id === activeId ? { ...d, display_label: editLabel.trim(), status: "reviewed" } : d));
+            setActiveId(null); setActiveType(null);
+        } catch (err: any) { setSaveError(err.message ?? "Failed to save"); }
+        finally { setSaving(false); }
     }
 
     function goToFrame(i: number) {
@@ -1506,233 +1667,155 @@ function AnnotateReview({
         onFrameChange(i);
     }
 
-    const activeDetection = detections.find(d => d.id === activeDetectionId);
-    const activeBbox = boundingBoxes.find(b => b.id === activeBboxId);
+    const cursor = isPanning ? "grabbing" : mode === "draw" ? "crosshair" : hovId ? "pointer" : "default";
+    const zoomPct = Math.round(zoomLevel * 100);
+    const activeDet = detections.find(d => d.id === activeId && activeType === "det");
 
     return (
-        <>
-            {/* Slim header */}
-            <div
-                className={styles.topbar}
-                style={{ padding: "10px 20px", height: 54 }}
-            >
-                <div className="flex items-center" style={{ gap: 12 }}>
-                    <button onClick={onBack} className={styles.btnSecondary}>
-                        <ChevronLeft size={13} /> All frames
-                    </button>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text1)" }}>
-                        {project.name}
+        <div className={styles.annotateShell}>
+            {/* Header */}
+            <div className={styles.annotateHeader}>
+                <div className={styles.annotateHeaderLeft}>
+                    <span className={styles.annotateTitle}>{project.name}</span>
+                    <div className={styles.annotateFrameBadge}>
+                        <span className={styles.annotateFrameBadgeCurrent}>{activeFrameIndex + 1}</span>
+                        <span className={styles.annotateFrameBadgeSep}>/</span>
+                        <span className={styles.annotateFrameBadgeTotal}>{frames.length}</span>
                     </div>
                 </div>
-                <div className={styles.topbarActions}>
-                    <button className={styles.btnSecondary}>
-                        <Download size={12} /> Export
+                <div className={styles.annotateHeaderRight}>
+                    <div className={styles.viewSwitch}>
+                        <button onClick={onBack} className={styles.viewSwitchBtn}>
+                            <LayoutGrid size={13} />
+                            Grid
+                        </button>
+                        <button className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnSingle} ${styles.viewSwitchBtnActive}`}>
+                            <Tag size={13} />
+                            Single
+                        </button>
+                    </div>
+                    <button className={styles.annotateBtnGhost}>
+                        <Download size={13} />
+                        Export
                     </button>
                 </div>
             </div>
 
-            <div
-                style={{
-                    flex: 1,
-                    display: "grid",
-                    gridTemplateColumns: "1fr 290px",
-                    gridTemplateRows: "1fr 86px",
-                    gap: 12,
-                    padding: "12px 20px",
-                    overflow: "hidden",
-                }}
-            >
-                {/* Canvas viewer */}
-                <div
-                    style={{
-                        background: "#0a1018",
-                        borderRadius: 12,
-                        position: "relative",
-                        overflow: "hidden",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                    }}
-                >
+            {/* Body: canvas | panel */}
+            <div className={styles.annotateBody}>
+                {/* Canvas */}
+                <div ref={containerRef} className={styles.annotateCanvasWrap}>
                     <canvas
                         ref={canvasRef}
+                        className={styles.annotationCanvas}
+                        style={{ cursor }}
                         onMouseDown={handleMouseDown}
                         onMouseMove={handleMouseMove}
                         onMouseUp={handleMouseUp}
-                        onClick={handleCanvasClick}
-                        style={{
-                            maxWidth: "100%",
-                            maxHeight: "100%",
-                            cursor: drawMode ? "crosshair" : "default",
+                        onMouseLeave={() => {
+                            setHovId(null);
+                            if (!drawStartRef.current) {
+                                panRef.current = null; setIsPanning(false);
+                                dragRef.current = null; resizeRef.current = null;
+                            }
                         }}
                     />
 
-                    {drawMode && (
-                        <div
-                            style={{
-                                position: "absolute",
-                                top: 12,
-                                left: "50%",
-                                transform: "translateX(-50%)",
-                                background: "rgba(127,163,232,0.18)",
-                                border: "1px solid rgba(127,163,232,0.4)",
-                                color: "var(--primary-light)",
-                                fontSize: 12,
-                                fontWeight: 700,
-                                padding: "4px 14px",
-                                borderRadius: 20,
-                                letterSpacing: "0.05em",
-                                textTransform: "uppercase",
-                            }}
-                        >
-                            Draw mode · drag to place box
-                        </div>
+                    {mode === "draw" && !pendingBox && (
+                        <div className={styles.drawModeToast}>Drag to draw a bounding box · Esc to cancel</div>
                     )}
 
                     {pendingBox && (
-                        <div
-                            style={{
-                                position: "absolute",
-                                top: pendingBox.y2 + 10,
-                                left: pendingBox.x1,
-                                background: "var(--surface)",
-                                border: "1.5px solid var(--primary)",
-                                borderRadius: 10,
-                                padding: "12px 14px",
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 8,
-                                minWidth: 240,
-                                zIndex: 10,
-                                boxShadow: "var(--shadow-md)",
-                            }}
-                        >
-                            <div
-                                style={{
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: "var(--text3)",
-                                    textTransform: "uppercase",
-                                    letterSpacing: "0.08em",
-                                }}
-                            >
-                                Species label
-                            </div>
+                        <div className={styles.pendingBoxPopup}>
+                            <div className={styles.pendingBoxLabel}>Label new box</div>
                             <input
                                 autoFocus
                                 value={labelInput}
                                 onChange={e => setLabelInput(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === "Enter") handleSaveBbox();
-                                    if (e.key === "Escape") {
-                                        setPendingBox(null);
-                                        setDrawMode(false);
-                                    }
-                                }}
-                                placeholder="e.g. fish, hard coral…"
-                                style={{
-                                    border: "1.5px solid var(--border)",
-                                    borderRadius: 7,
-                                    padding: "8px 10px",
-                                    fontSize: 13,
-                                    fontFamily: "inherit",
-                                    outline: "none",
-                                    color: "var(--text1)",
-                                }}
+                                onKeyDown={e => { if (e.key === "Enter") handleSaveBbox(); if (e.key === "Escape") setPendingBox(null); }}
+                                placeholder="e.g. Lutjanus"
+                                className={styles.pendingBoxInput}
                             />
-                            <div className="flex" style={{ gap: 8 }}>
-                                <button
-                                    onClick={handleSaveBbox}
-                                    disabled={!labelInput.trim() || savingBbox}
-                                    className={styles.btnPrimary}
-                                    style={{ flex: 1, justifyContent: "center" }}
-                                >
+                            <div className={styles.pendingBoxActions}>
+                                <button onClick={() => setPendingBox(null)} className={styles.annotateBtnGhost}>Cancel</button>
+                                <button onClick={handleSaveBbox} disabled={savingBbox || !labelInput.trim()} className={styles.annotateBtnPrimary}>
                                     {savingBbox ? "Saving…" : "Save"}
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setPendingBox(null);
-                                        setDrawMode(false);
-                                    }}
-                                    className={styles.btnSecondary}
-                                    style={{ flex: 1, justifyContent: "center" }}
-                                >
-                                    Cancel
                                 </button>
                             </div>
                         </div>
                     )}
 
                     {/* Floating toolbar */}
-                    <div
-                        style={{
-                            position: "absolute",
-                            bottom: 10,
-                            left: "50%",
-                            transform: "translateX(-50%)",
-                            display: "flex",
-                            gap: 6,
-                            alignItems: "center",
-                            background: "rgba(10,16,24,0.88)",
-                            backdropFilter: "blur(8px)",
-                            borderRadius: 10,
-                            padding: "6px 8px",
-                            border: "1px solid rgba(255,255,255,0.12)",
-                        }}
-                    >
-                        <button
-                            onClick={() => goToFrame(Math.max(0, activeFrameIndex - 1))}
-                            disabled={activeFrameIndex === 0}
-                            style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 7,
-                                border: "1px solid rgba(255,255,255,0.12)",
-                                background: "rgba(255,255,255,0.07)",
-                                color: "rgba(255,255,255,0.7)",
-                                cursor: activeFrameIndex === 0 ? "not-allowed" : "pointer",
-                                opacity: activeFrameIndex === 0 ? 0.4 : 1,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                            }}
-                        >
-                            <SkipBack size={14} />
+                    <div className={styles.annotateToolbar}>
+                        <button onClick={() => setMode("select")} className={`${styles.annotateTool} ${mode === "select" ? styles.annotateToolActive : ""}`} title="Select / Move (S)">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M2 2l5 10 1.5-3.5L12 7 2 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                            </svg>
                         </button>
-                        <span
-                            style={{
-                                fontSize: 12,
-                                color: "rgba(255,255,255,0.7)",
-                                fontFamily: "var(--font-dm-mono), monospace",
-                                padding: "0 8px",
-                            }}
-                        >
-                            {activeFrameIndex + 1} / {frames.length}
-                        </span>
-                        <button
-                            onClick={() =>
-                                goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1))
-                            }
-                            disabled={activeFrameIndex === frames.length - 1}
-                            style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 7,
-                                border: "1px solid rgba(255,255,255,0.12)",
-                                background: "rgba(255,255,255,0.07)",
-                                color: "rgba(255,255,255,0.7)",
-                                cursor:
-                                    activeFrameIndex === frames.length - 1
-                                        ? "not-allowed"
-                                        : "pointer",
-                                opacity: activeFrameIndex === frames.length - 1 ? 0.4 : 1,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                            }}
-                        >
-                            <ChevronRight size={14} />
+                        <button onClick={() => { setMode("draw"); setPendingBox(null); }} className={`${styles.annotateTool} ${mode === "draw" ? styles.annotateToolActive : ""}`} title="Draw box (D)">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <rect x="2" y="2" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.4" strokeDasharray="2.5 1.5" />
+                                <line x1="7" y1="4.5" x2="7" y2="9.5" stroke="currentColor" strokeWidth="1.2" />
+                                <line x1="4.5" y1="7" x2="9.5" y2="7" stroke="currentColor" strokeWidth="1.2" />
+                            </svg>
                         </button>
+                        <button onClick={() => setHideDetections(v => !v)} className={`${styles.annotateTool} ${hideDetections ? styles.annotateToolActive : ""}`} title="Hide detections (H)">
+                            {hideDetections ? (
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                    <line x1="1.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                                    <path d="M4 4.5C2.5 5.5 1.5 7 1.5 7S3.5 11 7 11c1 0 1.9-.3 2.7-.7M6 3.1C6.3 3 6.6 3 7 3c3.5 0 5.5 4 5.5 4-.4.7-.9 1.4-1.5 1.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                                </svg>
+                            ) : (
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                    <path d="M1.5 7S3.5 3 7 3s5.5 4 5.5 4-2 4-5.5 4S1.5 7 1.5 7z" stroke="currentColor" strokeWidth="1.3" />
+                                    <circle cx="7" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+                                </svg>
+                            )}
+                        </button>
+
+                        <span className={styles.annotateToolSep} />
+
+                        <button onClick={zoomOut} disabled={zoomLevel <= 0.11} className={styles.annotateTool} title="Zoom out">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="4" y1="6" x2="8" y2="6" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="9" y1="9" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                            </svg>
+                        </button>
+                        <button onClick={zoomReset} className={`${styles.annotateTool} ${styles.annotateToolZoomPct}`} title="Reset zoom">{zoomPct}%</button>
+                        <button onClick={zoomIn} disabled={zoomLevel >= 19.9} className={styles.annotateTool} title="Zoom in">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="6" y1="4" x2="6" y2="8" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="4" y1="6" x2="8" y2="6" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="9" y1="9" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                            </svg>
+                        </button>
+
+                        <span className={styles.annotateToolSep} />
+
+                        <button onClick={() => goToFrame(Math.max(0, activeFrameIndex - 1))} disabled={activeFrameIndex === 0} className={styles.annotateTool} title="Previous frame (←)">
+                            <SkipBack size={13} />
+                        </button>
+                        <span className={styles.annotateToolCounter}>{activeFrameIndex + 1} / {frames.length}</span>
+                        <button onClick={() => goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1))} disabled={activeFrameIndex === frames.length - 1} className={styles.annotateTool} title="Next frame (→)">
+                            <ChevronRight size={13} />
+                        </button>
+
+                        {activeId && activeType === "bbox" && (
+                            <>
+                                <span className={styles.annotateToolSep} />
+                                <button onClick={() => { if (activeId) handleDeleteBbox(activeId); }} className={`${styles.annotateTool} ${styles.annotateToolDanger}`} title="Delete selected (Del)">
+                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                        <polyline points="2,4 12,4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                                        <path d="M5 4V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.3" />
+                                        <rect x="3" y="4" width="8" height="7" rx="1" stroke="currentColor" strokeWidth="1.3" />
+                                        <line x1="5.5" y1="6.5" x2="5.5" y2="9.5" stroke="currentColor" strokeWidth="1.2" />
+                                        <line x1="8.5" y1="6.5" x2="8.5" y2="9.5" stroke="currentColor" strokeWidth="1.2" />
+                                    </svg>
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -1748,6 +1831,7 @@ function AnnotateReview({
                         flexDirection: "column",
                         gap: 10,
                         overflow: "hidden",
+                        margin: 12,
                     }}
                 >
                     <div
@@ -1785,25 +1869,18 @@ function AnnotateReview({
                         }}
                     >
                         {loadingDets ? (
-                            <div
-                                style={{
-                                    color: "var(--text3)",
-                                    fontSize: 12,
-                                    textAlign: "center",
-                                    padding: 12,
-                                }}
-                            >
+                            <div style={{ color: "var(--text3)", fontSize: 12, textAlign: "center", padding: 12 }}>
                                 Loading…
                             </div>
                         ) : (
                             detectionGroups.map(({ primary: d, overlapping }) => {
-                                const active = d.id === activeDetectionId;
+                                const active = d.id === activeId && activeType === "det";
                                 return (
                                     <div key={d.id}>
                                         <div
                                             onClick={() => {
-                                                setActiveDetectionId(active ? null : d.id);
-                                                setActiveBboxId(null);
+                                                setActiveId(active ? null : d.id);
+                                                setActiveType(active ? null : "det");
                                             }}
                                             style={{
                                                 display: "flex",
@@ -1812,9 +1889,7 @@ function AnnotateReview({
                                                 padding: "8px 10px",
                                                 borderRadius: 7,
                                                 cursor: "pointer",
-                                                background: active
-                                                    ? "var(--primary-pale)"
-                                                    : "var(--surface2)",
+                                                background: active ? "var(--primary-pale)" : "var(--surface2)",
                                                 border: `1.5px solid ${active ? "var(--primary-light)" : "var(--border)"}`,
                                             }}
                                         >
@@ -1823,10 +1898,7 @@ function AnnotateReview({
                                                     width: 10,
                                                     height: 10,
                                                     borderRadius: "50%",
-                                                    background:
-                                                        labelColorMap.get(
-                                                            d.display_label || "Unknown"
-                                                        ) ?? "var(--text3)",
+                                                    background: labelColorMap.get(d.display_label || "Unknown") ?? "var(--text3)",
                                                     flexShrink: 0,
                                                 }}
                                             />
@@ -1841,17 +1913,11 @@ function AnnotateReview({
                                             >
                                                 {d.display_label || "Unknown"}
                                             </span>
-                                            <span
-                                                style={{
-                                                    fontSize: 12,
-                                                    color: "var(--text2)",
-                                                    fontWeight: 700,
-                                                }}
-                                            >
+                                            <span style={{ fontSize: 12, color: "var(--text2)", fontWeight: 700 }}>
                                                 {Math.round((d.score ?? 0) * 100)}%
                                             </span>
                                         </div>
-                                        {overlapping.map(alt => (
+                                        {overlapping.map((alt: any) => (
                                             <div
                                                 key={alt.id}
                                                 style={{
@@ -1867,27 +1933,13 @@ function AnnotateReview({
                                                         width: 6,
                                                         height: 6,
                                                         borderRadius: "50%",
-                                                        background:
-                                                            labelColorMap.get(
-                                                                alt.display_label || "Unknown"
-                                                            ) ?? "var(--text3)",
+                                                        background: labelColorMap.get(alt.display_label || "Unknown") ?? "var(--text3)",
                                                     }}
                                                 />
-                                                <span
-                                                    style={{
-                                                        flex: 1,
-                                                        fontSize: 12,
-                                                        color: "var(--text2)",
-                                                    }}
-                                                >
+                                                <span style={{ flex: 1, fontSize: 12, color: "var(--text2)" }}>
                                                     {alt.display_label || "Unknown"}
                                                 </span>
-                                                <span
-                                                    style={{
-                                                        fontSize: 11,
-                                                        color: "var(--text3)",
-                                                    }}
-                                                >
+                                                <span style={{ fontSize: 11, color: "var(--text3)" }}>
                                                     {Math.round((alt.score ?? 0) * 100)}%
                                                 </span>
                                             </div>
@@ -1899,13 +1951,13 @@ function AnnotateReview({
 
                         {!loadingBboxes &&
                             boundingBoxes.map(b => {
-                                const active = b.id === activeBboxId;
+                                const active = b.id === activeId && activeType === "bbox";
                                 return (
                                     <div
                                         key={b.id}
                                         onClick={() => {
-                                            setActiveBboxId(active ? null : b.id);
-                                            setActiveDetectionId(null);
+                                            setActiveId(active ? null : b.id);
+                                            setActiveType(active ? null : "bbox");
                                         }}
                                         style={{
                                             display: "flex",
@@ -1914,9 +1966,7 @@ function AnnotateReview({
                                             padding: "8px 10px",
                                             borderRadius: 7,
                                             cursor: "pointer",
-                                            background: active
-                                                ? "rgba(94,201,154,0.1)"
-                                                : "var(--surface2)",
+                                            background: active ? "rgba(94,201,154,0.1)" : "var(--surface2)",
                                             border: `1.5px dashed ${active ? "var(--success)" : "var(--border)"}`,
                                         }}
                                     >
@@ -1929,31 +1979,14 @@ function AnnotateReview({
                                                 flexShrink: 0,
                                             }}
                                         />
-                                        <span
-                                            style={{
-                                                flex: 1,
-                                                fontSize: 13,
-                                                color: "var(--text1)",
-                                                fontWeight: active ? 600 : 500,
-                                            }}
-                                        >
+                                        <span style={{ flex: 1, fontSize: 13, color: "var(--text1)", fontWeight: active ? 600 : 500 }}>
                                             {b.display_label}
                                         </span>
-                                        <span
-                                            style={{
-                                                fontSize: 10,
-                                                color: "var(--success)",
-                                                fontWeight: 700,
-                                                marginRight: 4,
-                                            }}
-                                        >
+                                        <span style={{ fontSize: 10, color: "var(--success)", fontWeight: 700, marginRight: 4 }}>
                                             drawn
                                         </span>
                                         <button
-                                            onClick={e => {
-                                                e.stopPropagation();
-                                                handleDeleteBbox(b.id);
-                                            }}
+                                            onClick={e => { e.stopPropagation(); handleDeleteBbox(b.id); }}
                                             style={{
                                                 background: "none",
                                                 border: "none",
@@ -1963,41 +1996,32 @@ function AnnotateReview({
                                                 lineHeight: 1,
                                                 padding: 2,
                                             }}
-                                        >
-                                            ×
-                                        </button>
+                                        >×</button>
                                     </div>
                                 );
                             })}
 
                         <button
-                            onClick={() => {
-                                setDrawMode(m => !m);
-                                setPendingBox(null);
-                            }}
+                            onClick={() => { setMode(m => m === "draw" ? "select" : "draw"); setPendingBox(null); }}
                             style={{
                                 marginTop: 4,
                                 padding: "8px 10px",
                                 borderRadius: 8,
-                                background: drawMode
-                                    ? "var(--primary-pale)"
-                                    : "transparent",
-                                border: drawMode
-                                    ? "1.5px solid var(--primary)"
-                                    : "1.5px dashed var(--border)",
-                                color: drawMode ? "var(--primary-dark)" : "var(--text3)",
+                                background: mode === "draw" ? "var(--primary-pale)" : "transparent",
+                                border: mode === "draw" ? "1.5px solid var(--primary)" : "1.5px dashed var(--border)",
+                                color: mode === "draw" ? "var(--primary-dark)" : "var(--text3)",
                                 fontSize: 12,
                                 cursor: "pointer",
                                 fontWeight: 700,
-                                textAlign: "left",
+                                textAlign: "left" as const,
                                 fontFamily: "inherit",
                             }}
                         >
-                            {drawMode ? "Cancel draw mode" : "+ Draw new bounding box"}
+                            {mode === "draw" ? "Cancel draw mode" : "+ Draw new bounding box"}
                         </button>
                     </div>
 
-                    {activeDetection && (
+                    {activeDet && (
                         <div
                             style={{
                                 borderTop: "1px solid var(--border)",
@@ -2008,24 +2032,14 @@ function AnnotateReview({
                                 flexShrink: 0,
                             }}
                         >
-                            <div
-                                style={{
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: "var(--text3)",
-                                    textTransform: "uppercase",
-                                    letterSpacing: "0.05em",
-                                }}
-                            >
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                                 Edit label
                             </div>
                             <input
                                 type="text"
                                 value={editLabel}
                                 onChange={e => setEditLabel(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === "Enter") handleApprove();
-                                }}
+                                onKeyDown={e => { if (e.key === "Enter") handleApprove(); }}
                                 placeholder="e.g. Lutjanus carponotatus"
                                 style={{
                                     border: "1.5px solid var(--border)",
@@ -2037,16 +2051,7 @@ function AnnotateReview({
                                 }}
                             />
                             {saveError && (
-                                <div
-                                    style={{
-                                        fontSize: 12,
-                                        color: "var(--danger)",
-                                        background: "#fff0f0",
-                                        border: "1px solid #ffd0d0",
-                                        borderRadius: 6,
-                                        padding: "6px 10px",
-                                    }}
-                                >
+                                <div style={{ fontSize: 12, color: "var(--danger)", background: "#fff0f0", border: "1px solid #ffd0d0", borderRadius: 6, padding: "6px 10px" }}>
                                     {saveError}
                                 </div>
                             )}
@@ -2055,11 +2060,7 @@ function AnnotateReview({
                                     onClick={handleApprove}
                                     disabled={saving || !editLabel.trim()}
                                     className={styles.btnPrimary}
-                                    style={{
-                                        flex: 1,
-                                        justifyContent: "center",
-                                        background: "var(--success)",
-                                    }}
+                                    style={{ flex: 1, justifyContent: "center", background: "var(--success)" }}
                                 >
                                     {saving ? "Saving…" : "Save & mark reviewed"}
                                 </button>
@@ -2067,113 +2068,9 @@ function AnnotateReview({
                         </div>
                     )}
 
-                    {activeBbox && (
-                        <div
-                            style={{
-                                borderTop: "1px solid var(--border)",
-                                paddingTop: 12,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 8,
-                                flexShrink: 0,
-                            }}
-                        >
-                            <div
-                                style={{
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: "var(--text3)",
-                                    textTransform: "uppercase",
-                                    letterSpacing: "0.05em",
-                                }}
-                            >
-                                Manual annotation
-                            </div>
-                            <div
-                                style={{
-                                    background: "var(--surface2)",
-                                    border: "1px solid var(--border)",
-                                    borderRadius: 8,
-                                    padding: "8px 12px",
-                                }}
-                            >
-                                <span
-                                    style={{
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: "var(--text1)",
-                                    }}
-                                >
-                                    {activeBbox.display_label}
-                                </span>
-                                <div
-                                    style={{
-                                        fontSize: 11,
-                                        color: "var(--text3)",
-                                        marginTop: 3,
-                                        fontFamily:
-                                            "var(--font-dm-mono), monospace",
-                                    }}
-                                >
-                                    [{activeBbox.bbox.map(v => Math.round(v)).join(", ")}] px
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => handleDeleteBbox(activeBbox.id)}
-                                style={{
-                                    padding: "8px",
-                                    borderRadius: 8,
-                                    background: "#fff8f8",
-                                    border: "1.5px solid #ffd0d0",
-                                    color: "var(--danger)",
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    cursor: "pointer",
-                                    fontFamily: "inherit",
-                                }}
-                            >
-                                Delete box
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                {/* Filmstrip */}
-                <div
-                    style={{
-                        gridColumn: "1 / span 2",
-                        display: "flex",
-                        gap: 8,
-                        overflowX: "auto",
-                        alignItems: "center",
-                        paddingBottom: 4,
-                    }}
-                >
-                    {frames.map((f, i) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            key={f.id}
-                            src={f.frame_url}
-                            alt={f.source_filename}
-                            onClick={() => goToFrame(i)}
-                            style={{
-                                height: 70,
-                                minWidth: 110,
-                                objectFit: "cover",
-                                borderRadius: 6,
-                                cursor: "pointer",
-                                opacity: i === activeFrameIndex ? 1 : 0.55,
-                                border:
-                                    i === activeFrameIndex
-                                        ? "2px solid var(--primary)"
-                                        : "2px solid transparent",
-                                flexShrink: 0,
-                            }}
-                        />
-                    ))}
                 </div>
             </div>
-        </>
+        </div>
     );
 }
 
