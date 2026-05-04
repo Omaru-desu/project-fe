@@ -167,7 +167,10 @@ export default function ProjectPage({ projectId }: Props) {
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [search, setSearch] = useState("");
     const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
-
+    const [annotateTarget, setAnnotateTarget] = useState<{
+        frameId: string;
+        detectionId: string;
+    } | null>(null);
 
     // Project lookup
     useEffect(() => {
@@ -357,6 +360,10 @@ export default function ProjectPage({ projectId }: Props) {
                         processing={processing}
                         onUpload={() => setShowUpload(true)}
                         onStartAnnotating={() => setScreen("annotate")}
+                        onOpenInAnnotator={(frameId, detectionId) => {
+                            setAnnotateTarget({ frameId, detectionId });
+                            setScreen("annotate");
+                        }}
                         onOpenReview={(d) => setReviewDetection(d)}
                     />
                 )}
@@ -365,6 +372,9 @@ export default function ProjectPage({ projectId }: Props) {
                         project={project}
                         frames={frames}
                         projectId={projectId}
+                        initialFrameId={annotateTarget?.frameId ?? null}
+                        initialDetectionId={annotateTarget?.detectionId ?? null}
+                        onEntered={() => setAnnotateTarget(null)}
                     />
                 )}
                 {screen === "models" && <ModelsScreen />}
@@ -576,6 +586,7 @@ function GalleryScreen({
     onUpload,
     onStartAnnotating,
     onOpenReview,
+    onOpenInAnnotator,
 }: {
     project: { name: string };
     frames: FrameRow[];
@@ -597,6 +608,7 @@ function GalleryScreen({
     onUpload: () => void;
     onStartAnnotating: () => void;
     onOpenReview: (d: Detection) => void;
+    onOpenInAnnotator: (frameId: string, detectionId: string) => void;
 }) {
     const [sortConf, setSortConf] = useState<"off" | "high" | "low">("off");
 
@@ -632,13 +644,6 @@ function GalleryScreen({
                     <button onClick={onUpload} className={styles.btnSecondary}>
                         <Plus size={13} />
                         Upload media
-                    </button>
-                    <button onClick={onStartAnnotating} className={styles.btnPrimary}>
-                        <Tag size={14} />
-                        Start Annotating
-                    </button>
-                    <button className={styles.bellBtn} aria-label="Notifications">
-                        <Bell size={15} />
                     </button>
                 </div>
             </div>
@@ -792,6 +797,7 @@ function GalleryScreen({
                         onClose={() => setSelectedDetectionId(null)}
                         onAnnotate={onStartAnnotating}
                         onOpenReview={onOpenReview}
+                        onOpenInAnnotator={onOpenInAnnotator}
                     />
                 )}
             </div>
@@ -916,6 +922,7 @@ function FrameDetailPanel({
     onAnnotate,
     onOpenReview,
     selectedDetectionId,
+    onOpenInAnnotator,
 }: {
     frame: FrameRow;
     detections: Detection[];
@@ -924,6 +931,7 @@ function FrameDetailPanel({
     onAnnotate: () => void;
     onOpenReview: (d: Detection) => void;
     selectedDetectionId: string | null;
+    onOpenInAnnotator: (frameId: string, detectionId: string) => void;
 }) {
     const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
 
@@ -1089,7 +1097,11 @@ function FrameDetailPanel({
                 )}
 
                 <div className="flex flex-col" style={{ gap: 6, paddingTop: 4 }}>
-                    <button onClick={onAnnotate} className={styles.btnPrimary} style={{ width: "100%", justifyContent: "center" }}>
+                    <button
+                        onClick={() => onOpenInAnnotator(frame.id, selectedDetectionId ?? "")}
+                        className={styles.btnPrimary}
+                        style={{ width: "100%", justifyContent: "center" }}
+                    >
                         Open in Annotator
                     </button>
                 </div>
@@ -1105,13 +1117,19 @@ function AnnotateScreen({
     project,
     frames,
     projectId,
+    initialDetectionId,
+    onEntered,
+    initialFrameId,
 }: {
     project: { name: string };
     frames: FrameRow[];
     projectId: string;
+    initialFrameId: string | null;
+    initialDetectionId: string | null;
+    onEntered: () => void;
 }) {
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
-        frames[0]?.id ?? null
+        initialFrameId ?? frames[0]?.id ?? null
     );
     const selectedFrame = frames.find(f => f.id === selectedFrameId);
     const selectedFrameIndex = frames.findIndex(f => f.id === selectedFrameId);
@@ -1192,6 +1210,8 @@ function AnnotateScreen({
             frames={frames}
             initialFrameIndex={selectedFrameIndex}
             projectId={projectId}
+            initialDetectionId={initialDetectionId}
+            onEntered={onEntered}
             onBack={() => setSelectedFrameId(null)}
             onFrameChange={i => setSelectedFrameId(frames[i]?.id ?? null)}
         />
@@ -1205,6 +1225,8 @@ function AnnotateReview({
     projectId,
     onBack,
     onFrameChange,
+    initialDetectionId,
+    onEntered,
 }: {
     project: { name: string };
     frames: FrameRow[];
@@ -1212,6 +1234,8 @@ function AnnotateReview({
     projectId: string;
     onBack: () => void;
     onFrameChange: (i: number) => void;
+    initialDetectionId: string | null;
+    onEntered: () => void;
 }) {
     // refs
     const containerRef = useRef<HTMLDivElement>(null);
@@ -1270,6 +1294,7 @@ function AnnotateReview({
     const resizeRef = useRef<{ id: string; type: "det" | "bbox"; corner: "tl" | "tr" | "bl" | "br"; sx: number; sy: number; ob: number[] } | null>(null);
     const panRef = useRef<{ startCx: number; startCy: number; startOx: number; startOy: number } | null>(null);
     const [isPanning, setIsPanning] = useState(false);
+    const didApplyInitial = useRef(false);
 
     // coord helpers
     function toCanvas(ix: number, iy: number) {
@@ -1395,6 +1420,15 @@ function AnnotateReview({
                 const dets = (data.detections ?? data).filter((d: any) => d.annotation_source !== "human");
                 console.log("detections:", dets.map((d: any) => ({ id: d.id, status: d.status, score: d.score })));
                 setDetections(dets);
+                if (!didApplyInitial.current && initialDetectionId) {
+                    const target = dets.find((d: any) => d.id === initialDetectionId);
+                    if (target) {
+                        setActiveId(initialDetectionId);
+                        setActiveType("det");
+                    }
+                    didApplyInitial.current = true;
+                    onEntered();
+                }
                 setLabelColorMap(buildLabelColorMap(dets));
             })
             .catch(console.error)
