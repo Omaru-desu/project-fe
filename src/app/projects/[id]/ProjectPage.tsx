@@ -40,8 +40,6 @@ import styles from "./ProjectPage.module.css";
 import UploadMediaModal from "../../../components/projects/UploadMediaModal";
 import ReviewModal from "../../../components/projects/ReviewModal";
 
-const frameCache = new Map<string, string>();
-
 interface Props {
     projectId: string;
 }
@@ -75,11 +73,7 @@ interface FrameRow {
     frame_url: string;
 }
 
-const STATUS_DOTS: Record<string, string> = {
-    reviewed: "var(--success)",
-    needs_review: "var(--text3)",
-    flagged: "var(--warning)",
-};
+
 
 function StatusBadge({
     label,
