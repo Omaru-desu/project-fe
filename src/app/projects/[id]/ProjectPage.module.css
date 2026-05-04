@@ -1081,6 +1081,7 @@
 .annotateBody {
     display: grid;
     grid-template-columns: 1fr 290px;
+    grid-template-rows: 1fr;
     flex: 1;
     min-height: 0;
     overflow: hidden;

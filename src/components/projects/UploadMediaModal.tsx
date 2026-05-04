@@ -104,8 +104,7 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
 
             const response = await api.uploadProject(projectId, formData);
 
-            setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));
-
+            setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));   
             // api.segmentUpload(projectId, response.upload_id);
             onUploadComplete(response.upload_id, response.frame_count);
 

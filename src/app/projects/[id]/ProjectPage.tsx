@@ -385,7 +385,8 @@ export default function ProjectPage({ projectId }: Props) {
                     onUpload={() => setShowUpload(true)}
                     onStartAnnotating={() => setScreen("annotate")}
                     onOpenReview={(d) => setReviewDetection(d)}
-                    onOpenInAnnotator={(frameId, detectionId) => {   
+                    onOpenInAnnotator={(frameId, detectionId) => {
+                        setAnnotateTarget({ frameId, detectionId });
                         setScreen("annotate");
                     }}
                 />
@@ -1192,23 +1193,25 @@ function AnnotateScreen({
     );
     const selectedFrame = readyFrames.find(f => f.id === selectedFrameId);
     const selectedFrameIndex = readyFrames.findIndex(f => f.id === selectedFrameId);
+    const [viewMode, setViewMode] = useState<"grid" | "single">(
+        initialFrameId ? "single" : "grid"
+    );
 
-    if (!selectedFrameId || !selectedFrame) {
+    if (viewMode === "grid") {
         return (
             <>
-                <div className={styles.topbar}>
-                    <div>
-                        <div className={styles.topbarTitle}>Annotate</div>
-                        <div className={styles.topbarSubtitle}>{project.name}</div>
+                <div className={styles.annotateHeader}>
+                    <div className={styles.annotateHeaderLeft}>
+                        <span className={styles.annotateTitle}>{project.name}</span>
                     </div>
-                    <div className={styles.topbarActions}>
+                    <div className={styles.annotateHeaderRight}>
                         <div className={styles.viewSwitch}>
                             <button className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnActive}`}>
                                 <LayoutGrid size={13} />
                                 Grid
                             </button>
                             <button
-                                onClick={() => setSelectedFrameId(readyFrames[0]?.id ?? null)}
+                                onClick={() => setViewMode("single")}
                                 className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnSingle}`}
                             >
                                 <Tag size={13} />
@@ -1228,35 +1231,38 @@ function AnnotateScreen({
                             gap: 12,
                         }}
                     >
-                        {readyFrames.map(f => (
-                            <div
-                                key={f.id}
-                                onClick={() => setSelectedFrameId(f.id)}
-                                style={{
-                                    borderRadius: 10,
-                                    overflow: "hidden",
-                                    cursor: "pointer",
-                                    border: "1px solid var(--border)",
-                                    background: "var(--surface)",
-                                    boxShadow: "var(--shadow-sm)",
-                                }}
-                            >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                    src={f.frame_url}
-                                    alt={f.source_filename}
-                                    style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
-                                />
-                                <div style={{ padding: "8px 10px" }}>
-                                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                        {f.source_filename}
-                                    </div>
-                                    <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
-                                        {f.detections.length} detection{f.detections.length !== 1 ? "s" : ""}
+                        {readyFrames.map(f => {
+                            const isSelected = f.id === selectedFrameId;
+                            return (
+                                <div
+                                    key={f.id}
+                                    onClick={() => { setSelectedFrameId(f.id); setViewMode("single"); }}
+                                    style={{
+                                        borderRadius: 10,
+                                        overflow: "hidden",
+                                        cursor: "pointer",
+                                        border: isSelected ? "2px solid var(--primary)" : "1px solid var(--border)",
+                                        background: "var(--surface)",
+                                        boxShadow: isSelected ? "0 0 0 3px var(--primary-pale)" : "var(--shadow-sm)",
+                                    }}
+                                >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                        src={f.frame_url}
+                                        alt={f.source_filename}
+                                        style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+                                    />
+                                    <div style={{ padding: "8px 10px" }}>
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                            {f.source_filename}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                                            {f.detections.length} detection{f.detections.length !== 1 ? "s" : ""}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             </>
@@ -1267,11 +1273,11 @@ function AnnotateScreen({
         <AnnotateReview
             project={project}
             frames={readyFrames}
-            initialFrameIndex={selectedFrameIndex}
+            initialFrameIndex={selectedFrameIndex < 0 ? 0 : selectedFrameIndex}
             projectId={projectId}
             initialDetectionId={initialDetectionId}
             onEntered={onEntered}
-            onBack={() => setSelectedFrameId(null)}
+            onBack={() => setViewMode("grid")}
             onFrameChange={i => setSelectedFrameId(readyFrames[i]?.id ?? null)}
         />
     );
@@ -1306,11 +1312,13 @@ function AnnotateReview({
     const [activeFrameIndex, setActiveFrameIndex] = useState(initialFrameIndex);
     const frame = frames[activeFrameIndex];
 
-    const [reviewMode, setReviewMode] = useState(false);
+    // reviewMode removed — panel is always-on in the new per-detection review workflow
     const [editingDetectionId, setEditingDetectionId] = useState<string | null>(null);
     const [pendingLabels, setPendingLabels] = useState<Map<string, string>>(new Map());
     const [savingReview, setSavingReview] = useState(false);
     const [reviewedWithoutScore, setReviewedWithoutScore] = useState<Set<string>>(new Set());
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [, setToastTick] = useState(0);
 
     // data
     const [detections, setDetections] = useState<any[]>([]);
@@ -1319,6 +1327,8 @@ function AnnotateReview({
     const [loadingBboxes, setLoadingBboxes] = useState(false);
     const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(new Map());
     const detectionGroups = useMemo(() => groupDetections(detections), [detections]);
+    const reviewedCount = detectionGroups.filter(({ primary: d }) => d.status === "reviewed").length + boundingBoxes.length;
+    const totalCount = detectionGroups.length + boundingBoxes.length;
 
     // selection
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -1335,7 +1345,7 @@ function AnnotateReview({
     const fitTfRef = useRef({ scale: 1, ox: 0, oy: 0 });
     const [zoomLevel, setZoomLevel] = useState(1);
     const zoomLevelRef = useRef(1);
-    const [pendingDeletions, setPendingDeletions] = useState<Set<string>>(new Set());
+    const [editedIds, setEditedIds] = useState<Set<string>>(new Set());
 
     // mode
     const [mode, setMode] = useState<"select" | "draw">("select");
@@ -1473,11 +1483,13 @@ function AnnotateReview({
         drawCurRef.current = null;
         setReviewedWithoutScore(new Set());
 
+        const ac = new AbortController();
+
         setLoadingDets(true);
-        api.getFrameDetections(projectId, frame.id)
+        api.getFrameDetections(projectId, frame.id, ac.signal)
             .then(data => {
+                if (ac.signal.aborted) return;
                 const dets = (data.detections ?? data).filter((d: any) => d.annotation_source !== "human");
-                console.log("detections:", dets.map((d: any) => ({ id: d.id, status: d.status, score: d.score })));
                 setDetections(dets);
                 if (!didApplyInitial.current && initialDetectionId) {
                     const target = dets.find((d: any) => d.id === initialDetectionId);
@@ -1490,14 +1502,16 @@ function AnnotateReview({
                 }
                 setLabelColorMap(buildLabelColorMap(dets));
             })
-            .catch(console.error)
-            .finally(() => setLoadingDets(false));
+            .catch(err => { if (err?.name !== "AbortError") console.error("detections:", err); })
+            .finally(() => { if (!ac.signal.aborted) setLoadingDets(false); });
 
         setLoadingBboxes(true);
         api.getBoundingBoxes(projectId, frame.id)
             .catch(() => [] as BoundingBox[])
-            .then(data => setBoundingBoxes(data))
-            .finally(() => setLoadingBboxes(false));
+            .then(data => { if (!ac.signal.aborted) setBoundingBoxes(data); })
+            .finally(() => { if (!ac.signal.aborted) setLoadingBboxes(false); });
+
+        return () => ac.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frame?.id, projectId]);
 
@@ -1669,6 +1683,19 @@ function AnnotateReview({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeId, activeType, activeFrameIndex, frames.length]);
 
+    // "Saved · Xs ago" toast — tick every second while visible, clear after 10s
+    useEffect(() => {
+        if (savedAt === null) return;
+        const interval = setInterval(() => {
+            if (Date.now() - savedAt >= 10000) {
+                setSavedAt(null);
+            } else {
+                setToastTick(t => t + 1);
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [savedAt]);
+
     // mouse handlers
     function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
         if (e.button !== 0) return;
@@ -1777,8 +1804,31 @@ function AnnotateReview({
             }
             return;
         }
-        resizeRef.current = null;
-        dragRef.current = null;
+        if (resizeRef.current) {
+            const r = resizeRef.current;
+            const { cx, cy } = clientToCanvas(e);
+            const dix = (cx - r.sx) / tfRef.current.scale;
+            const diy = (cy - r.sy) / tfRef.current.scale;
+            let [x1, y1, x2, y2] = r.ob;
+            if (r.corner === "tl") { x1 += dix; y1 += diy; }
+            else if (r.corner === "tr") { x2 += dix; y1 += diy; }
+            else if (r.corner === "bl") { x1 += dix; y2 += diy; }
+            else { x2 += dix; y2 += diy; }
+            markBoxEdited(r.id, r.type, [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]);
+            resizeRef.current = null;
+        }
+        if (dragRef.current) {
+            if (dragRef.current.moved) {
+                const d = dragRef.current;
+                const { cx, cy } = clientToCanvas(e);
+                const dix = (cx - d.sx) / tfRef.current.scale;
+                const diy = (cy - d.sy) / tfRef.current.scale;
+                const [x1, y1, x2, y2] = d.ob;
+                const w = x2 - x1, h = y2 - y1;
+                markBoxEdited(d.id, d.type, [x1 + dix, y1 + diy, x1 + dix + w, y1 + diy + h]);
+            }
+            dragRef.current = null;
+        }
         panRef.current = null;
         setIsPanning(false);
     }
@@ -1786,6 +1836,91 @@ function AnnotateReview({
     function updateBoxLocal(id: string, type: "det" | "bbox", newBox: number[]) {
         if (type === "bbox") setBoundingBoxes(prev => prev.map(b => b.id === id ? { ...b, bbox: newBox as [number, number, number, number] } : b));
         else setDetections(prev => prev.map(d => d.id === id ? { ...d, bbox: newBox } : d));
+    }
+
+    function recordSave() {
+        setSavedAt(Date.now());
+    }
+
+    async function commitDetectionLabel(id: string, newLabel: string, originalLabel: string) {
+        const trimmed = newLabel.trim() || originalLabel;
+        setDetections(prev => prev.map(d =>
+            d.id === id ? { ...d, display_label: trimmed, status: "reviewed" } : d
+        ));
+        if (trimmed !== originalLabel) {
+            setEditedIds(prev => new Set([...prev, id]));
+        }
+        setPendingLabels(prev => { const next = new Map(prev); next.delete(id); return next; });
+        setEditingDetectionId(null);
+        try {
+            await api.reviewDetectionLabel(id, trimmed);
+            recordSave();
+        } catch (err: any) {
+            setSaveError(err?.message ?? "Failed to save label");
+        }
+    }
+
+    async function commitBboxLabel(id: string, newLabel: string, originalLabel: string) {
+        const trimmed = newLabel.trim() || originalLabel;
+        setBoundingBoxes(prev => prev.map(b => b.id === id ? { ...b, display_label: trimmed } : b));
+        if (trimmed !== originalLabel) {
+            setEditedIds(prev => new Set([...prev, id]));
+        }
+        setPendingLabels(prev => { const next = new Map(prev); next.delete(id); return next; });
+        setEditingDetectionId(null);
+        if (!frame) return;
+        try {
+            await api.updateBoundingBox(projectId, frame.id, id, { display_label: trimmed });
+            recordSave();
+        } catch (err: any) {
+            setSaveError(err?.message ?? "Failed to save label");
+        }
+    }
+
+    async function markBoxEdited(id: string, type: "det" | "bbox", finalBox: number[]) {
+        setEditedIds(prev => new Set([...prev, id]));
+        if (type === "det") {
+            setDetections(prev => prev.map(d =>
+                d.id === id ? { ...d, status: "reviewed" } : d
+            ));
+            // TODO: wire updateDetection(id, { status: "reviewed", bbox: finalBox }) — no patch endpoint yet
+            recordSave();
+        } else {
+            if (!frame) return;
+            try {
+                await api.updateBoundingBox(projectId, frame.id, id, {
+                    bbox: finalBox.map(Math.round) as [number, number, number, number],
+                });
+                recordSave();
+            } catch (err: any) {
+                setSaveError(err?.message ?? "Failed to save bbox");
+            }
+        }
+    }
+
+    async function handleBulkMarkCorrect() {
+        const unreviewedDets = detectionGroups
+            .filter(({ primary: d }) => d.status === "needs_review")
+            .map(({ primary: d }) => ({ id: d.id, label: d.display_label ?? "" }));
+
+        setSavingReview(true);
+        setSaveError(null);
+        try {
+            // Mark remaining unreviewed as correct — optimistic state update first
+            setDetections(prev => prev.map(d =>
+                unreviewedDets.some(u => u.id === d.id) ? { ...d, status: "reviewed" } : d
+            ));
+            setPendingLabels(new Map());
+            // Persist each newly-reviewed detection
+            await Promise.all(unreviewedDets.map(({ id, label }) =>
+                api.reviewDetectionLabel(id, label)
+            ));
+            recordSave();
+        } catch (err: any) {
+            setSaveError(err.message ?? "Failed to save");
+        } finally {
+            setSavingReview(false);
+        }
     }
 
     async function handleSaveBbox() {
@@ -1828,78 +1963,7 @@ function AnnotateReview({
         onFrameChange(i);
     }
 
-    function enterReviewMode() {
-        setReviewMode(true);
-        setPendingLabels(new Map());
-        setEditingDetectionId(null);
-    }
 
-    function exitReviewMode() {
-        setReviewMode(false);
-        setPendingLabels(new Map());
-        setPendingDeletions(new Set());
-        setEditingDetectionId(null);
-    }
-
-    async function handleSaveReview() {
-        const toSaveDets = detections.filter(d => !pendingDeletions.has(d.id));
-        const toSaveBboxes = boundingBoxes.filter(b => !pendingDeletions.has(b.id));
-        const bboxIds = new Set(boundingBoxes.map(b => b.id));
-
-        setSavingReview(true);
-        try {
-            await Promise.all([
-                // save detection labels
-                ...toSaveDets.map(d => {
-                    const label = pendingLabels.get(d.id)?.trim() ?? d.display_label;
-                    return api.reviewDetectionLabel(d.id, label);
-                }),
-                // save bbox label changes
-                ...toSaveBboxes
-                    .filter(b => pendingLabels.has(b.id))
-                    .map(b => api.updateBoundingBox(projectId, frame!.id, b.id, {
-                        display_label: pendingLabels.get(b.id)!.trim(),
-                    })),
-                // delete — use correct endpoint per type
-                ...[...pendingDeletions].map(id =>
-                    bboxIds.has(id)
-                        ? api.deleteBoundingBox(projectId, frame!.id, id)
-                        : api.deleteDetection(id)
-                ),
-            ]);
-
-            const editedIds = [...pendingLabels.keys()];
-            setReviewedWithoutScore(prev => {
-                const next = new Set(prev);
-                editedIds.forEach(id => next.add(id));
-                return next;
-            });
-
-            const newDets = detectionGroups
-                .filter(({ primary: d }) => !pendingDeletions.has(d.id))
-                .map(({ primary: d }) => ({
-                    ...d,
-                    display_label: pendingLabels.get(d.id)?.trim() ?? d.display_label,
-                    status: "reviewed",
-                }));
-            setDetections(newDets);
-
-            setBoundingBoxes(prev =>
-                prev
-                    .filter(b => !pendingDeletions.has(b.id))
-                    .map(b => ({
-                        ...b,
-                        display_label: pendingLabels.get(b.id)?.trim() ?? b.display_label,
-                    }))
-            );
-
-            exitReviewMode();
-        } catch (err: any) {
-            setSaveError(err.message ?? "Failed to save");
-        } finally {
-            setSavingReview(false);
-        }
-    }
 
     async function handleDeleteDetection(detectionId: string) {
         try {
@@ -1928,6 +1992,10 @@ function AnnotateReview({
                     </div>
                 </div>
                 <div className={styles.annotateHeaderRight}>
+                    <button className={styles.annotateBtnGhost}>
+                        <Download size={13} />
+                        Export
+                    </button>
                     <div className={styles.viewSwitch}>
                         <button onClick={onBack} className={styles.viewSwitchBtn}>
                             <LayoutGrid size={13} />
@@ -1938,10 +2006,6 @@ function AnnotateReview({
                             Single
                         </button>
                     </div>
-                    <button className={styles.annotateBtnGhost}>
-                        <Download size={13} />
-                        Export
-                    </button>
                 </div>
             </div>
 
@@ -2093,36 +2157,18 @@ function AnnotateReview({
                             <span>Detections</span>
                             <span
                                 style={{
-                                    color: "var(--text2)",
-                                    background: "var(--surface2)",
+                                    color: reviewedCount === totalCount && totalCount > 0 ? "#0F6E56" : "var(--text2)",
+                                    background: reviewedCount === totalCount && totalCount > 0 ? "#E1F5EE" : "var(--surface2)",
                                     padding: "1px 8px",
                                     borderRadius: 99,
-                                    border: "1px solid var(--border)",
+                                    border: `1px solid ${reviewedCount === totalCount && totalCount > 0 ? "#5DCAA5" : "var(--border)"}`,
+                                    fontVariantNumeric: "tabular-nums",
+                                    transition: "all 0.15s ease",
                                 }}
                             >
-                                {detectionGroups.length + boundingBoxes.length}
+                                {reviewedCount}/{totalCount}
                             </span>
                         </div>
-
-                        {reviewMode ? (
-                            <span style={{ fontSize: 10, color: "var(--primary)", fontWeight: 700 }}>
-                                Review mode
-                            </span>
-                        ) : (
-                            <button
-                                onClick={enterReviewMode}
-                                className={styles.btnSecondary}
-                                style={{
-                                    fontSize: 11,
-                                    padding: "4px 10px",
-                                    background: "var(--primary-pale)",
-                                    border: "1.5px solid var(--primary-light)",
-                                    color: "var(--primary-dark)",
-                                }}
-                            >
-                                Edit & Review
-                            </button>
-                        )}
                     </div>
 
                     <div
@@ -2143,20 +2189,16 @@ function AnnotateReview({
                                 const active = d.id === activeId && activeType === "det";
                                 const isEditing = editingDetectionId === d.id;
                                 const currentLabel = pendingLabels.get(d.id) ?? d.display_label ?? "Unknown";
-                                const isDirty = pendingLabels.has(d.id) &&
-                                    pendingLabels.get(d.id)?.trim() !== d.display_label;
                                 const isReviewed = d.status === "reviewed";
 
                                 return (
                                     <div key={d.id}>
                                         <div
                                             onClick={() => {
-                                                if (reviewMode) return;
                                                 setActiveId(active ? null : d.id);
                                                 setActiveType(active ? null : "det");
                                             }}
                                             onDoubleClick={() => {
-                                                if (!reviewMode) return;
                                                 setEditingDetectionId(d.id);
                                                 if (!pendingLabels.has(d.id)) {
                                                     setPendingLabels(prev =>
@@ -2167,17 +2209,15 @@ function AnnotateReview({
                                             style={{
                                                 display: "flex",
                                                 alignItems: "center",
-                                                gap: 10,
-                                                padding: "8px 10px",
+                                                gap: 8,
+                                                padding: "7px 10px",
                                                 borderRadius: 7,
-                                                cursor: reviewMode ? "text" : "pointer",
-                                                background: active ? "var(--primary-pale)" : "var(--surface2)",
-                                                border: `1.5px solid ${reviewMode
-                                                    ? "rgba(255,255,255,0.15)"
-                                                    : active
-                                                        ? "var(--primary-light)"
-                                                        : "var(--border)"
-                                                    }`,
+                                                cursor: "pointer",
+                                                background: active ? "#E6F1FB" : "var(--surface2)",
+                                                border: `1.5px solid ${active ? "#378ADD" : "var(--border)"}`,
+                                                boxShadow: isReviewed ? "inset 3px 0 0 #1D9E75" : "none",
+                                                paddingLeft: isReviewed ? 13 : 10,
+                                                transition: "background 0.1s, box-shadow 0.15s, border-color 0.1s",
                                             }}
                                         >
                                             <span
@@ -2200,10 +2240,20 @@ function AnnotateReview({
                                                             new Map(prev).set(d.id, e.target.value)
                                                         )
                                                     }
-                                                    onBlur={() => setEditingDetectionId(null)}
+                                                    onBlur={() =>
+                                                        commitDetectionLabel(d.id, currentLabel, d.display_label ?? "")
+                                                    }
                                                     onKeyDown={e => {
-                                                        if (e.key === "Enter" || e.key === "Escape")
+                                                        if (e.key === "Enter") {
+                                                            commitDetectionLabel(d.id, currentLabel, d.display_label ?? "");
+                                                        } else if (e.key === "Escape") {
+                                                            setPendingLabels(prev => {
+                                                                const next = new Map(prev);
+                                                                next.delete(d.id);
+                                                                return next;
+                                                            });
                                                             setEditingDetectionId(null);
+                                                        }
                                                     }}
                                                     onClick={e => e.stopPropagation()}
                                                     style={{
@@ -2224,59 +2274,117 @@ function AnnotateReview({
                                                 <span
                                                     style={{
                                                         flex: 1,
-                                                        fontSize: 13,
-                                                        color: pendingDeletions.has(d.id) ? "var(--text3)" : "var(--text1)",
-                                                        fontWeight: active ? 600 : 500,
-                                                        fontStyle: "italic",
-                                                        textDecoration: pendingDeletions.has(d.id) ? "line-through" : "none",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        gap: 6,
+                                                        minWidth: 0,
                                                     }}
                                                 >
-                                                    {currentLabel}
+                                                    <span
+                                                        style={{
+                                                            fontSize: 13,
+                                                            color: "var(--text1)",
+                                                            fontWeight: active ? 600 : 500,
+                                                            fontStyle: "italic",
+                                                            overflow: "hidden",
+                                                            textOverflow: "ellipsis",
+                                                            whiteSpace: "nowrap",
+                                                        }}
+                                                    >
+                                                        {currentLabel}
+                                                    </span>
+                                                    {editedIds.has(d.id) && (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 9,
+                                                                fontWeight: 700,
+                                                                fontStyle: "normal",
+                                                                padding: "1px 6px",
+                                                                borderRadius: 99,
+                                                                background: "#E1F5EE",
+                                                                color: "#0F6E56",
+                                                                textTransform: "uppercase",
+                                                                letterSpacing: "0.04em",
+                                                                flexShrink: 0,
+                                                            }}
+                                                        >
+                                                            edited
+                                                        </span>
+                                                    )}
                                                 </span>
                                             )}
-                                            {d.score != null && !reviewedWithoutScore.has(d.id) && !reviewMode && (
-                                                <span style={{ fontSize: 12, color: "var(--text2)", fontWeight: 700 }}>
+                                            {d.score != null && !reviewedWithoutScore.has(d.id) && !isEditing && (
+                                                <span style={{ fontSize: 11, color: "var(--text3)", fontWeight: 600, flexShrink: 0 }}>
                                                     {Math.round((d.score ?? 0) * 100)}%
                                                 </span>
                                             )}
-                                            {reviewMode && !isEditing && !pendingDeletions.has(d.id) && (
-                                                <span style={{ fontSize: 10, color: "var(--text3)", opacity: 0.6 }}>
-                                                    edit
-                                                </span>
-                                            )}
-                                            {reviewMode && (
-                                                <button
-                                                    onClick={e => {
-                                                        e.stopPropagation();
-                                                        setPendingDeletions(prev => {
-                                                            const next = new Set(prev);
-                                                            if (next.has(d.id)) {
-                                                                next.delete(d.id);
-                                                            } else {
-                                                                next.add(d.id);
-                                                            }
-                                                            return next;
-                                                        });
-                                                    }}
-                                                    style={{
-                                                        background: "none",
-                                                        border: "none",
-                                                        color: pendingDeletions.has(d.id) ? "var(--danger)" : "var(--danger)",
-                                                        cursor: "pointer",
-                                                        fontSize: pendingDeletions.has(d.id) ? 11 : 14,
-                                                        fontWeight: pendingDeletions.has(d.id) ? 700 : 400,
-                                                        lineHeight: 1,
-                                                        padding: 2,
-                                                        fontFamily: "inherit",
-                                                    }}
-                                                >
-                                                    {pendingDeletions.has(d.id) ? "undo" : "×"}
-                                                </button>
-                                            )}
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    handleDeleteDetection(d.id);
+                                                }}
+                                                title="Delete detection"
+                                                style={{
+                                                    background: "none",
+                                                    border: "none",
+                                                    color: "var(--text3)",
+                                                    cursor: "pointer",
+                                                    fontSize: 14,
+                                                    lineHeight: 1,
+                                                    padding: "2px 3px",
+                                                    fontFamily: "inherit",
+                                                    flexShrink: 0,
+                                                    opacity: 0.45,
+                                                }}
+                                                onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                                                onMouseLeave={e => (e.currentTarget.style.opacity = "0.45")}
+                                            >
+                                                ×
+                                            </button>
+                                            {/* Checkmark circle — marks as reviewed; locked once reviewed */}
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    if (isReviewed) return;
+                                                    setDetections(prev => prev.map(det =>
+                                                        det.id === d.id ? { ...det, status: "reviewed" } : det
+                                                    ));
+                                                    api.reviewDetectionLabel(d.id, d.display_label ?? "")
+                                                        .then(recordSave)
+                                                        .catch(err => setSaveError(err?.message ?? "Failed to save"));
+                                                }}
+                                                title={isReviewed ? "Reviewed" : "Mark as reviewed"}
+                                                disabled={isReviewed}
+                                                style={{
+                                                    background: isReviewed ? "#1D9E75" : "none",
+                                                    border: `1.5px solid ${isReviewed ? "#1D9E75" : "var(--text3)"}`,
+                                                    borderRadius: "50%",
+                                                    width: 20,
+                                                    height: 20,
+                                                    flexShrink: 0,
+                                                    cursor: isReviewed ? "default" : "pointer",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    padding: 0,
+                                                    transition: "background 0.15s, border-color 0.15s",
+                                                    opacity: isReviewed ? 1 : 0.45,
+                                                }}
+                                            >
+                                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                                    <path
+                                                        d="M2 5l2.2 2.3L8 3"
+                                                        stroke={isReviewed ? "#fff" : "var(--text3)"}
+                                                        strokeWidth="1.6"
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                    />
+                                                </svg>
+                                            </button>
                                         </div>
 
-                                        {/* Only show overlapping when not reviewed and not in review mode */}
-                                        {!reviewMode && !isReviewed && overlapping.map(alt => (
+                                        {/* Show overlapping alternatives when not yet reviewed */}
+                                        {!isReviewed && overlapping.map(alt => (
                                             <div
                                                 key={alt.id}
                                                 style={{
@@ -2316,18 +2424,15 @@ function AnnotateReview({
                                 const bboxColor = labelColorMap.get(b.display_label) ?? "#34d399";
                                 const isEditingBbox = editingDetectionId === b.id;
                                 const currentBboxLabel = pendingLabels.get(b.id) ?? b.display_label;
-                                const isPendingDelete = pendingDeletions.has(b.id);
-
+                
                                 return (
                                     <div
                                         key={b.id}
                                         onClick={() => {
-                                            if (reviewMode) return;
                                             setActiveId(active ? null : b.id);
                                             setActiveType(active ? null : "bbox");
                                         }}
                                         onDoubleClick={() => {
-                                            if (!reviewMode) return;
                                             setEditingDetectionId(b.id);
                                             if (!pendingLabels.has(b.id)) {
                                                 setPendingLabels(prev => new Map(prev).set(b.id, b.display_label));
@@ -2336,12 +2441,15 @@ function AnnotateReview({
                                         style={{
                                             display: "flex",
                                             alignItems: "center",
-                                            gap: 10,
-                                            padding: "8px 10px",
+                                            gap: 8,
+                                            padding: "7px 10px",
+                                            paddingLeft: 13,
                                             borderRadius: 7,
-                                            cursor: reviewMode ? "text" : "pointer",
-                                            background: active ? "rgba(94,201,154,0.1)" : "var(--surface2)",
-                                            border: `1.5px dashed ${active ? bboxColor : "var(--border)"}`,
+                                            cursor: "pointer",
+                                            background: active ? "#E6F1FB" : "var(--surface2)",
+                                            border: `1.5px dashed ${active ? "#378ADD" : "var(--border)"}`,
+                                            boxShadow: "inset 3px 0 0 #1D9E75",
+                                            transition: "background 0.1s, border-color 0.1s",
                                         }}
                                     >
                                         <span
@@ -2361,10 +2469,20 @@ function AnnotateReview({
                                                 onChange={e =>
                                                     setPendingLabels(prev => new Map(prev).set(b.id, e.target.value))
                                                 }
-                                                onBlur={() => setEditingDetectionId(null)}
+                                                onBlur={() =>
+                                                    commitBboxLabel(b.id, currentBboxLabel, b.display_label)
+                                                }
                                                 onKeyDown={e => {
-                                                    if (e.key === "Enter" || e.key === "Escape")
+                                                    if (e.key === "Enter") {
+                                                        commitBboxLabel(b.id, currentBboxLabel, b.display_label);
+                                                    } else if (e.key === "Escape") {
+                                                        setPendingLabels(prev => {
+                                                            const next = new Map(prev);
+                                                            next.delete(b.id);
+                                                            return next;
+                                                        });
                                                         setEditingDetectionId(null);
+                                                    }
                                                 }}
                                                 onClick={e => e.stopPropagation()}
                                                 style={{
@@ -2385,143 +2503,160 @@ function AnnotateReview({
                                                 style={{
                                                     flex: 1,
                                                     fontSize: 13,
-                                                    color: isPendingDelete ? "var(--text3)" : "var(--text1)",
+                                                    color: "var(--text1)",
                                                     fontWeight: active ? 600 : 500,
-                                                    textDecoration: isPendingDelete ? "line-through" : "none",
+                                                    overflow: "hidden",
+                                                    textOverflow: "ellipsis",
+                                                    whiteSpace: "nowrap",
                                                 }}
                                             >
                                                 {currentBboxLabel}
                                             </span>
                                         )}
-                                        {!reviewMode && (
-                                            <span style={{ fontSize: 10, color: bboxColor, fontWeight: 700, marginRight: 4 }}>
-                                                drawn
-                                            </span>
-                                        )}
-                                        {reviewMode && !isEditingBbox && !isPendingDelete && (
-                                            <span style={{ fontSize: 10, color: "var(--text3)", opacity: 0.6 }}>
-                                                edit
-                                            </span>
-                                        )}
-                                        {reviewMode && (
-                                            <button
-                                                onClick={e => {
-                                                    e.stopPropagation();
-                                                    setPendingDeletions(prev => {
-                                                        const next = new Set(prev);
-                                                        if (next.has(b.id)) next.delete(b.id);
-                                                        else next.add(b.id);
-                                                        return next;
-                                                    });
-                                                }}
-                                                style={{
-                                                    background: "none",
-                                                    border: "none",
-                                                    color: "var(--danger)",
-                                                    cursor: "pointer",
-                                                    fontSize: isPendingDelete ? 11 : 14,
-                                                    fontWeight: isPendingDelete ? 700 : 400,
-                                                    lineHeight: 1,
-                                                    padding: 2,
-                                                    fontFamily: "inherit",
-                                                }}
-                                            >
-                                                {isPendingDelete ? "undo" : "×"}
-                                            </button>
-                                        )}
+                                        <span style={{ fontSize: 9, color: bboxColor, fontWeight: 700, flexShrink: 0, opacity: 0.75 }}>
+                                            drawn
+                                        </span>
+                                        <button
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                handleDeleteBbox(b.id);
+                                            }}
+                                            title="Delete annotation"
+                                            style={{
+                                                background: "none",
+                                                border: "none",
+                                                color: "var(--text3)",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                lineHeight: 1,
+                                                padding: "2px 3px",
+                                                fontFamily: "inherit",
+                                                flexShrink: 0,
+                                                opacity: 0.45,
+                                            }}
+                                            onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                                            onMouseLeave={e => (e.currentTarget.style.opacity = "0.45")}
+                                        >
+                                            ×
+                                        </button>
+                                        {/* Bboxes are human-drawn → always shown as reviewed */}
+                                        <button
+                                            onClick={e => e.stopPropagation()}
+                                            title="Reviewed (human annotation)"
+                                            style={{
+                                                background: "#1D9E75",
+                                                border: "1.5px solid #1D9E75",
+                                                borderRadius: "50%",
+                                                width: 20,
+                                                height: 20,
+                                                flexShrink: 0,
+                                                cursor: "default",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                padding: 0,
+                                            }}
+                                        >
+                                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                                <path
+                                                    d="M2 5l2.2 2.3L8 3"
+                                                    stroke="#fff"
+                                                    strokeWidth="1.6"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                            </svg>
+                                        </button>
                                     </div>
                                 );
                             })}
 
                     </div>
 
-                    {reviewMode && (
-                        <div
-                            style={{
-                                borderTop: "1px solid var(--border)",
-                                paddingTop: 12,
-                                flexShrink: 0,
-                            }}
-                        >
-                            {saveError && (
-                                <div
+                    <div
+                        style={{
+                            borderTop: "1px solid var(--border)",
+                            paddingTop: 12,
+                            flexShrink: 0,
+                        }}
+                    >
+                        {saveError && (
+                            <div
+                                style={{
+                                    fontSize: 12,
+                                    color: "var(--danger)",
+                                    background: "#fff0f0",
+                                    border: "1px solid #ffd0d0",
+                                    borderRadius: 6,
+                                    padding: "6px 10px",
+                                    marginBottom: 8,
+                                }}
+                            >
+                                {saveError}
+                            </div>
+                        )}
+                        {savedAt !== null && (
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 5,
+                                    fontSize: 11,
+                                    color: "#0F6E56",
+                                    marginBottom: 8,
+                                    fontWeight: 500,
+                                }}
+                            >
+                                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                    <circle cx="6.5" cy="6.5" r="5.5" stroke="#1D9E75" strokeWidth="1.2" />
+                                    <path d="M4 6.5l1.8 1.9L9.5 4.5" stroke="#1D9E75" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                {(() => {
+                                    const secs = Math.floor((Date.now() - (savedAt ?? 0)) / 1000);
+                                    return "Saved · " + (secs <= 0 ? "just now" : secs + "s ago");
+                                })()}
+                            </div>
+                        )}
+                        {reviewedCount === totalCount && totalCount > 0 ? null : (
+                            <>
+                                <button
+                                    onClick={handleBulkMarkCorrect}
+                                    disabled={savingReview || totalCount === 0}
+                                    className={styles.btnPrimary}
                                     style={{
-                                        fontSize: 12,
-                                        color: "var(--danger)",
-                                        background: "#fff0f0",
-                                        border: "1px solid #ffd0d0",
-                                        borderRadius: 6,
-                                        padding: "6px 10px",
-                                        marginBottom: 8,
+                                        width: "100%",
+                                        justifyContent: "center",
+                                        background: "#5DCAA5",
+                                        padding: "10px",
+                                        fontSize: 13,
                                     }}
                                 >
-                                    {saveError}
-                                </div>
-                            )}
-                            <button
-                                onClick={handleSaveReview}
-                                disabled={savingReview}
-                                className={styles.btnPrimary}
-                                style={{
-                                    width: "100%",
-                                    justifyContent: "center",
-                                    background: "var(--success)",
-                                    padding: "10px",
-                                    fontSize: 13,
-                                }}
-                            >
-                                {savingReview ? "Saving…" : `Save & mark all reviewed`}
-                            </button>
-                            <button
-                                onClick={exitReviewMode}
-                                className={styles.btnSecondary}
-                                style={{
-                                    width: "100%",
-                                    justifyContent: "center",
-                                    marginTop: 6,
-                                    fontSize: 12,
-                                }}
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    )}
+                                    {savingReview
+                                        ? "Saving…"
+                                        : reviewedCount === 0
+                                            ? "Mark all as correct"
+                                            : "Mark remaining as correct"}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setPendingLabels(new Map());
+                                        setEditingDetectionId(null);
+                                    }}
+                                    className={styles.btnSecondary}
+                                    style={{
+                                        width: "100%",
+                                        justifyContent: "center",
+                                        marginTop: 6,
+                                        fontSize: 12,
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                            </>
+                        )}
+                    </div>
                 </div>
 
-                {/* Filmstrip */}
-                <div
-                    style={{
-                        gridColumn: "1 / span 2",
-                        display: "flex",
-                        gap: 8,
-                        overflowX: "auto",
-                        alignItems: "center",
-                        paddingBottom: 4,
-                    }}
-                >
-                    {frames.map((f, i) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            key={f.id}
-                            src={f.frame_url}
-                            alt={f.source_filename}
-                            onClick={() => goToFrame(i)}
-                            style={{
-                                height: 70,
-                                minWidth: 110,
-                                objectFit: "cover",
-                                borderRadius: 6,
-                                cursor: "pointer",
-                                opacity: i === activeFrameIndex ? 1 : 0.55,
-                                border:
-                                    i === activeFrameIndex
-                                        ? "2px solid var(--primary)"
-                                        : "2px solid transparent",
-                                flexShrink: 0,
-                            }}
-                        />
-                    ))}
-                </div>
             </div>
         </div>
     );
