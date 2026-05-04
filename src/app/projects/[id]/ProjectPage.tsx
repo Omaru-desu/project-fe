@@ -221,29 +221,32 @@ export default function ProjectPage({ projectId }: Props) {
             )] as string[];
 
             for (const uploadId of uploadIds) {
-                try {
-                    const status = await api.getUploadStatus(uploadId);
-                    if (cancelled) return;
+    try {
+        const status = await api.getUploadStatus(uploadId);
+        if (cancelled) return;
 
-                    setProcessingList(prev => {
-                        if (prev.find(p => p.uploadId === uploadId)) return prev;
-                        return [...prev, {
-                            uploadId,
-                            totalFrames: status.total_frames,
-                            framesProcessed: status.frames_processed,
-                            status: status.status,
-                            errorMessage: (status as any).error_message,
-                        }];
-                    });
+        const inProgress = status.status !== "failed" &&
+                           status.status !== "segmented" &&
+                           status.status !== "ready";
 
-                    const inProgress = status.status !== "segmented" &&
-                                       status.status !== "failed" &&
-                                       status.status !== "ready";
-                    if (inProgress) startPolling(uploadId, status.total_frames);
-                } catch (err) {
-                    console.error(err);
-                }
-            }
+        // only add to list if currently in progress
+        if (inProgress) {
+            setProcessingList(prev => {
+                if (prev.find(p => p.uploadId === uploadId)) return prev;
+                return [...prev, {
+                    uploadId,
+                    totalFrames: status.total_frames,
+                    framesProcessed: status.frames_processed,
+                    status: status.status,
+                    errorMessage: (status as any).error_message,
+                }];
+            });
+            startPolling(uploadId, status.total_frames);
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
         })
         .catch(console.error);
 
@@ -673,7 +676,7 @@ function GalleryScreen({
             {/* Processing bar */}
             {processingList.length > 0 && (() => {
     const p = processingList[processingList.length - 1];
-    const isDone = p.status === "segmented" || p.status === "ready" || p.status === "completed" || p.status === "done";
+    const isDone = p.status === "segmented" || p.status === "ready";
     const isFailed = p.status === "failed";
     const pct = p.totalFrames > 0 ? (p.framesProcessed / p.totalFrames) * 100 : 0;
 
