@@ -788,6 +788,7 @@ function GalleryScreen({
                         frame={selectedFrame}
                         detections={selectedFrameDetections}
                         status={frameStatus[selectedFrame.id]}
+                        selectedDetectionId={selectedDetectionId}
                         onClose={() => setSelectedDetectionId(null)}
                         onAnnotate={onStartAnnotating}
                         onOpenReview={onOpenReview}
@@ -894,6 +895,7 @@ function FrameDetailPanel({
     onClose,
     onAnnotate,
     onOpenReview,
+    selectedDetectionId,
 }: {
     frame: FrameRow;
     detections: Detection[];
@@ -901,13 +903,18 @@ function FrameDetailPanel({
     onClose: () => void;
     onAnnotate: () => void;
     onOpenReview: (d: Detection) => void;
+    selectedDetectionId: string | null;
 }) {
+    const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+
+    const activeDet = selectedDetectionId
+        ? detections.find(d => d.id === selectedDetectionId) ?? detections[0]
+        : detections[0];
+
     const statusBadge =
-        status === "reviewed"
+        activeDet?.status === "reviewed"
             ? { label: "Reviewed", color: "var(--success)", bg: "rgba(94,201,154,0.12)" }
-            : status === "needs_review"
-                ? { label: "Needs review", color: "var(--warning)", bg: "rgba(245,188,98,0.15)" }
-                : { label: "No detections", color: "var(--text3)", bg: "var(--surface2)" };
+            : { label: "Needs review", color: "var(--warning)", bg: "rgba(245,188,98,0.15)" };
 
     return (
         <div className={styles.detailPanel}>
@@ -917,121 +924,112 @@ function FrameDetailPanel({
                     onClick={onClose}
                     aria-label="Close detail panel"
                     style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 5,
+                        width: 24, height: 24, borderRadius: 5,
                         border: "1.5px solid var(--border)",
-                        background: "var(--surface)",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
+                        background: "var(--surface)", cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
                     }}
                 >
                     <X size={12} color="var(--text3)" />
                 </button>
             </div>
             <div className={styles.detailPanelBody}>
-                <div
-                    style={{
-                        borderRadius: 8,
-                        overflow: "hidden",
-                        aspectRatio: "4/3",
-                        background: "#11293f",
-                    }}
-                >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                <div style={{
+                    borderRadius: 8,
+                    overflow: "hidden",
+                    background: "#11293f",
+                    position: "relative",
+                    width: "100%",
+                }}>
                     <img
                         src={frame.frame_url}
                         alt={frame.source_filename}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        style={{
+                            width: "100%",
+                            height: "auto",
+                            display: "block",
+                            zIndex: 0,
+                        }}
+                        onLoad={(e) => {
+                            const img = e.currentTarget;
+                            setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+                        }}
                     />
+                    {imgSize && detections
+                        .filter(det => selectedDetectionId === null || det.id === selectedDetectionId)
+                        .map((det) => {
+                            const [x1, y1, x2, y2] = det.bbox;
+                            const left = (x1 / imgSize.w) * 100;
+                            const top = (y1 / imgSize.h) * 100;
+                            const width = ((x2 - x1) / imgSize.w) * 100;
+                            const height = ((y2 - y1) / imgSize.h) * 100;
+                            return (
+                                <div
+                                    key={det.id}
+                                    style={{
+                                        position: "absolute",
+                                        left: `${left}%`, top: `${top}%`,
+                                        width: `${width}%`, height: `${height}%`,
+                                        border: "1.5px solid #ff4444",
+                                        boxSizing: "border-box",
+                                        pointerEvents: "none", zIndex: 1,
+                                    }}
+                                />
+                            );
+                        })}
                 </div>
 
-                <div>
-                    <div className={styles.detailLabel}>Frame</div>
-                    <div className={`${styles.detailValue} ${styles.detailValueMono}`} style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, fontStyle: "italic", color: "var(--text1)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {activeDet?.display_label || "Unknown"}
+                    </span>
+                    <span style={{
+                        fontSize: 12, fontWeight: 700,
+                        color: (activeDet?.score ?? 0) > 0.75 ? "var(--success)" : (activeDet?.score ?? 0) > 0.5 ? "var(--warning)" : "var(--danger)",
+                        background: (activeDet?.score ?? 0) > 0.75 ? "rgba(94,201,154,0.12)" : (activeDet?.score ?? 0) > 0.5 ? "rgba(245,188,98,0.15)" : "rgba(220,50,50,0.1)",
+                        padding: "2px 8px", borderRadius: 99,
                     }}>
-                        {frame.source_filename}
-                    </div>
+                        {Math.round((activeDet?.score ?? 0) * 100)}%
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text3)" }}>· {detections.length} detections</span>
                 </div>
 
                 <div>
                     <div className={styles.detailLabel}>Status</div>
-                    <StatusBadge
-                        label={statusBadge.label}
-                        color={statusBadge.color}
-                        bg={statusBadge.bg}
-                    />
+                    <StatusBadge label={statusBadge.label} color={statusBadge.color} bg={statusBadge.bg} />
+                </div>
+
+                <div>
+                    <div className={styles.detailLabel}>Frame</div>
+                    <div className={`${styles.detailValue} ${styles.detailValueMono}`} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+                        {frame.source_filename}
+                    </div>
                 </div>
 
                 {detections.length > 0 && (
                     <div>
-                        <div className={styles.detailLabel}>
-                            Detections ({detections.length})
-                        </div>
+                        <div className={styles.detailLabel}>Detections ({detections.length})</div>
                         <div className="flex flex-col" style={{ gap: 6 }}>
                             {detections.sort((a, b) => b.score - a.score).slice(0, 4).map(d => (
                                 <button
                                     key={d.id}
                                     onClick={() => onOpenReview(d)}
                                     style={{
-                                        textAlign: "left",
-                                        padding: "8px 10px",
-                                        borderRadius: 7,
-                                        border: "1.5px solid var(--border)",
-                                        background: "var(--surface2)",
-                                        cursor: "pointer",
-                                        fontFamily: "inherit",
+                                        textAlign: "left", padding: "8px 10px", borderRadius: 7,
+                                        border: "1.5px solid var(--border)", background: "var(--surface2)",
+                                        cursor: "pointer", fontFamily: "inherit",
                                     }}
                                 >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            alignItems: "center",
-                                        }}
-                                    >
-                                        <span
-                                            style={{
-                                                fontSize: 12,
-                                                fontWeight: 600,
-                                                fontStyle: "italic",
-                                                color: "var(--text1)",
-                                            }}
-                                        >
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <span style={{ fontSize: 12, fontWeight: 600, fontStyle: "italic", color: "var(--text1)" }}>
                                             {d.display_label || "Unknown"}
                                         </span>
-                                        <span
-                                            style={{
-                                                fontSize: 11,
-                                                fontWeight: 700,
-                                                color:
-                                                    d.score > 0.75
-                                                        ? "var(--success)"
-                                                        : d.score > 0.5
-                                                            ? "var(--warning)"
-                                                            : "var(--danger)",
-                                            }}
-                                        >
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)" }}>
                                             {Math.round(d.score * 100)}%
                                         </span>
                                     </div>
                                     <div style={{ marginTop: 4 }}>
-                                        <ProgressBar
-                                            value={d.score * 100}
-                                            color={
-                                                d.score > 0.75
-                                                    ? "var(--success)"
-                                                    : d.score > 0.5
-                                                        ? "var(--warning)"
-                                                        : "var(--danger)"
-                                            }
-                                            height={3}
-                                        />
+                                        <ProgressBar value={d.score * 100} color={d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)"} height={3} />
                                     </div>
                                 </button>
                             ))}
@@ -1040,11 +1038,7 @@ function FrameDetailPanel({
                 )}
 
                 <div className="flex flex-col" style={{ gap: 6, paddingTop: 4 }}>
-                    <button
-                        onClick={onAnnotate}
-                        className={styles.btnPrimary}
-                        style={{ width: "100%", justifyContent: "center" }}
-                    >
+                    <button onClick={onAnnotate} className={styles.btnPrimary} style={{ width: "100%", justifyContent: "center" }}>
                         Open in Annotator
                     </button>
                 </div>
@@ -1582,7 +1576,7 @@ function AnnotateReview({
             else if (r.corner === "tr") { x2 += dix; y1 += diy; }
             else if (r.corner === "bl") { x1 += dix; y2 += diy; }
             else { x2 += dix; y2 += diy; }
-            updateBoxLocal(r.id, r.type, [Math.min(x1,x2), Math.min(y1,y2), Math.max(x1,x2), Math.max(y1,y2)]);
+            updateBoxLocal(r.id, r.type, [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]);
             return;
         }
         if (dragRef.current) {
@@ -1736,14 +1730,14 @@ function AnnotateReview({
     }
 
     async function handleDeleteDetection(detectionId: string) {
-    try {
-        await api.deleteDetection(detectionId);
-        setDetections(prev => prev.filter(d => d.id !== detectionId));
-        if (activeId === detectionId) { setActiveId(null); setActiveType(null); }
-    } catch (err) {
-        console.error(err);
+        try {
+            await api.deleteDetection(detectionId);
+            setDetections(prev => prev.filter(d => d.id !== detectionId));
+            if (activeId === detectionId) { setActiveId(null); setActiveType(null); }
+        } catch (err) {
+            console.error(err);
+        }
     }
-}
 
     const cursor = isPanning ? "grabbing" : mode === "draw" ? "crosshair" : hovId ? "pointer" : "default";
     const zoomPct = Math.round(zoomLevel * 100);
@@ -2006,13 +2000,12 @@ function AnnotateReview({
                                                 borderRadius: 7,
                                                 cursor: reviewMode ? "text" : "pointer",
                                                 background: active ? "var(--primary-pale)" : "var(--surface2)",
-                                                border: `1.5px solid ${
-                                                    reviewMode
-                                                        ? "rgba(255,255,255,0.15)"
-                                                        : active
+                                                border: `1.5px solid ${reviewMode
+                                                    ? "rgba(255,255,255,0.15)"
+                                                    : active
                                                         ? "var(--primary-light)"
                                                         : "var(--border)"
-                                                }`,
+                                                    }`,
                                             }}
                                         >
                                             <span

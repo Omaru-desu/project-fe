@@ -704,8 +704,15 @@
     border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
     flex-shrink: 0;
+}
+
+.detailPanelBody {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
 }
 
 .detailPanelHeader {
@@ -720,14 +727,6 @@
     font-weight: 600;
     font-size: 13px;
     color: var(--text1);
-}
-
-.detailPanelBody {
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    overflow: auto;
 }
 
 .detailLabel {
@@ -1048,6 +1047,7 @@
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
+
 .annotateBtnGhost:hover {
     background: var(--surface2);
     color: var(--text1);
@@ -1067,8 +1067,15 @@
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
 }
-.annotateBtnPrimary:hover { background: var(--primary-dark); }
-.annotateBtnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.annotateBtnPrimary:hover {
+    background: var(--primary-dark);
+}
+
+.annotateBtnPrimary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
 
 /* ── 3-column body ───────────────────────────────────────────────────────── */
 .annotateBody {
@@ -1122,9 +1129,19 @@
     flex-direction: column;
     gap: 4px;
 }
-.frameStripList::-webkit-scrollbar { width: 4px; }
-.frameStripList::-webkit-scrollbar-track { background: transparent; }
-.frameStripList::-webkit-scrollbar-thumb { background: #2a2f42; border-radius: 4px; }
+
+.frameStripList::-webkit-scrollbar {
+    width: 4px;
+}
+
+.frameStripList::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.frameStripList::-webkit-scrollbar-thumb {
+    background: #2a2f42;
+    border-radius: 4px;
+}
 
 .frameStripItem {
     display: flex;
@@ -1136,10 +1153,12 @@
     border: 1px solid transparent;
     transition: background 0.12s, border-color 0.12s;
 }
+
 .frameStripItem:hover {
     background: #11141e;
     border-color: #2a2f42;
 }
+
 .frameStripItemActive {
     background: #11141e;
     border-color: #f59e0b !important;
@@ -1169,7 +1188,7 @@
     font-size: 9px;
     font-weight: 700;
     color: #fff;
-    background: rgba(0,0,0,0.65);
+    background: rgba(0, 0, 0, 0.65);
     border-radius: 3px;
     padding: 0 3px;
     line-height: 14px;
@@ -1238,7 +1257,7 @@
     border-radius: 12px;
     padding: 16px;
     min-width: 240px;
-    box-shadow: var(--shadow-md, 0 8px 32px rgba(0,0,0,0.12));
+    box-shadow: var(--shadow-md, 0 8px 32px rgba(0, 0, 0, 0.12));
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -1264,8 +1283,14 @@
     font-family: inherit;
     transition: border-color 0.15s;
 }
-.pendingBoxInput:focus { border-color: var(--primary); }
-.pendingBoxInput::placeholder { color: var(--text3); }
+
+.pendingBoxInput:focus {
+    border-color: var(--primary);
+}
+
+.pendingBoxInput::placeholder {
+    color: var(--text3);
+}
 
 .pendingBoxActions {
     display: flex;
@@ -1283,11 +1308,11 @@
     align-items: center;
     gap: 2px;
     background: var(--primary-dark);
-    border: 1.5px solid rgba(255,255,255,0.12);
+    border: 1.5px solid rgba(255, 255, 255, 0.12);
     border-radius: 12px;
     padding: 5px 8px;
     backdrop-filter: blur(12px);
-    box-shadow: 0 4px 20px rgba(74,111,196,0.3);
+    box-shadow: 0 4px 20px rgba(74, 111, 196, 0.3);
     z-index: 20;
 }
 
@@ -1300,15 +1325,17 @@
     border-radius: 7px;
     border: none;
     background: transparent;
-    color: rgba(255,255,255,0.55);
+    color: rgba(255, 255, 255, 0.55);
     cursor: pointer;
     transition: background 0.12s, color 0.12s;
     flex-shrink: 0;
 }
+
 .annotateTool:hover:not(:disabled) {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.1);
     color: #fff;
 }
+
 .annotateTool:disabled {
     opacity: 0.3;
     cursor: not-allowed;
@@ -1327,7 +1354,7 @@
     font-weight: 700;
     font-family: var(--font-dm-mono, 'DM Mono'), monospace;
     letter-spacing: 0.02em;
-    color: rgba(255,255,255,0.65);
+    color: rgba(255, 255, 255, 0.65);
 }
 
 .annotateToolDanger:hover:not(:disabled) {
@@ -1338,7 +1365,7 @@
 .annotateToolSep {
     width: 1px;
     height: 20px;
-    background: rgba(255,255,255,0.12);
+    background: rgba(255, 255, 255, 0.12);
     margin: 0 4px;
     flex-shrink: 0;
 }
@@ -1346,7 +1373,7 @@
 .annotateToolCounter {
     font-size: 11px;
     font-weight: 600;
-    color: rgba(255,255,255,0.55);
+    color: rgba(255, 255, 255, 0.55);
     font-family: var(--font-dm-mono, 'DM Mono'), monospace;
     padding: 0 4px;
     white-space: nowrap;
@@ -1403,9 +1430,19 @@
     flex-direction: column;
     gap: 4px;
 }
-.annotatePanelList::-webkit-scrollbar { width: 4px; }
-.annotatePanelList::-webkit-scrollbar-track { background: transparent; }
-.annotatePanelList::-webkit-scrollbar-thumb { background: #2a2f42; border-radius: 4px; }
+
+.annotatePanelList::-webkit-scrollbar {
+    width: 4px;
+}
+
+.annotatePanelList::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.annotatePanelList::-webkit-scrollbar-thumb {
+    background: #2a2f42;
+    border-radius: 4px;
+}
 
 .annotatePanelGroup {
     display: flex;
@@ -1434,6 +1471,7 @@
     cursor: pointer;
     transition: border-color 0.12s, background 0.12s;
 }
+
 .annotatePanelCard:hover {
     border-color: #2a2f42;
     background: #13161f;
@@ -1572,6 +1610,7 @@
     margin: 6px 6px 0 0;
     transition: background 0.12s, color 0.12s;
 }
+
 .annotatePanelDeleteBtn:hover {
     background: #2d1515;
     color: #f87171;
@@ -1607,8 +1646,14 @@
     font-family: inherit;
     transition: border-color 0.15s;
 }
-.annotatePanelEditorInput:focus { border-color: #f59e0b; }
-.annotatePanelEditorInput::placeholder { color: #4b5563; }
+
+.annotatePanelEditorInput:focus {
+    border-color: #f59e0b;
+}
+
+.annotatePanelEditorInput::placeholder {
+    color: #4b5563;
+}
 
 .annotatePanelError {
     font-size: 11px;
@@ -1646,6 +1691,7 @@
     cursor: pointer;
     transition: background 0.15s;
 }
+
 .annotatePanelDeleteFullBtn:hover {
     background: rgba(248, 113, 113, 0.2);
 }
