@@ -218,3 +218,11 @@ export async function deleteBoundingBox(
     );
     return handleResponse<void>(res);
 }
+
+export async function deleteDetection(detectionId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/api/detections/${detectionId}`, {
+        method: 'DELETE',
+        headers: await authHeaders(),
+    });
+    return handleResponse<void>(res);
+}

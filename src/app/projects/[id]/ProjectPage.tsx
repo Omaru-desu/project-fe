@@ -1178,6 +1178,12 @@ function AnnotateReview({
     const [activeFrameIndex, setActiveFrameIndex] = useState(initialFrameIndex);
     const frame = frames[activeFrameIndex];
 
+    const [reviewMode, setReviewMode] = useState(false);
+    const [editingDetectionId, setEditingDetectionId] = useState<string | null>(null);
+    const [pendingLabels, setPendingLabels] = useState<Map<string, string>>(new Map());
+    const [savingReview, setSavingReview] = useState(false);
+    const [reviewedWithoutScore, setReviewedWithoutScore] = useState<Set<string>>(new Set());
+
     // data
     const [detections, setDetections] = useState<any[]>([]);
     const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
@@ -1201,6 +1207,7 @@ function AnnotateReview({
     const fitTfRef = useRef({ scale: 1, ox: 0, oy: 0 });
     const [zoomLevel, setZoomLevel] = useState(1);
     const zoomLevelRef = useRef(1);
+    const [pendingDeletions, setPendingDeletions] = useState<Set<string>>(new Set());
 
     // mode
     const [mode, setMode] = useState<"select" | "draw">("select");
@@ -1335,11 +1342,13 @@ function AnnotateReview({
         setPendingBox(null);
         drawStartRef.current = null;
         drawCurRef.current = null;
+        setReviewedWithoutScore(new Set());
 
         setLoadingDets(true);
         api.getFrameDetections(projectId, frame.id)
             .then(data => {
                 const dets = (data.detections ?? data).filter((d: any) => d.annotation_source !== "human");
+                console.log("detections:", dets.map((d: any) => ({ id: d.id, status: d.status, score: d.score })));
                 setDetections(dets);
                 setLabelColorMap(buildLabelColorMap(dets));
             })
@@ -1403,6 +1412,10 @@ function AnnotateReview({
                         ctx.fillStyle = "#fff"; ctx.fillRect(hx - 4, hy - 4, 8, 8);
                         ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(hx - 4, hy - 4, 8, 8);
                     });
+                    ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = 10;
                 }
                 ctx.restore();
             });
@@ -1420,6 +1433,7 @@ function AnnotateReview({
                 ctx.lineWidth = isActive || isHov ? 2 : 1.5;
                 ctx.setLineDash([6, 3]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
+                ctx.shadowBlur = 0;
                 ctx.setLineDash([]);
                 ctx.shadowBlur = 0;
                 ctx.font = "bold 11px 'DM Mono', monospace";
@@ -1433,6 +1447,10 @@ function AnnotateReview({
                         ctx.fillStyle = "#fff"; ctx.fillRect(hx - 4, hy - 4, 8, 8);
                         ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(hx - 4, hy - 4, 8, 8);
                     });
+                    ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = 10;
                 }
                 ctx.restore();
             });
@@ -1667,6 +1685,66 @@ function AnnotateReview({
         onFrameChange(i);
     }
 
+    function enterReviewMode() {
+        setReviewMode(true);
+        setPendingLabels(new Map());
+        setEditingDetectionId(null);
+    }
+
+    function exitReviewMode() {
+        setReviewMode(false);
+        setPendingLabels(new Map());
+        setPendingDeletions(new Set());
+        setEditingDetectionId(null);
+    }
+
+    async function handleSaveReview() {
+        const toSave = detections.filter(d => !pendingDeletions.has(d.id));
+
+        setSavingReview(true);
+        try {
+            await Promise.all([
+                ...toSave.map(d => {
+                    const label = pendingLabels.get(d.id)?.trim() ?? d.display_label;
+                    return api.reviewDetectionLabel(d.id, label);
+                }),
+                ...[...pendingDeletions].map(id => api.deleteDetection(id)),
+            ]);
+
+            // track which ones were edited so we can hide their %
+            const editedIds = [...pendingLabels.keys()];
+            setReviewedWithoutScore(prev => {
+                const next = new Set(prev);
+                editedIds.forEach(id => next.add(id));
+                return next;
+            });
+
+            const newDets = detectionGroups
+                .filter(({ primary: d }) => !pendingDeletions.has(d.id))
+                .map(({ primary: d }) => ({
+                    ...d,
+                    display_label: pendingLabels.get(d.id)?.trim() ?? d.display_label,
+                    status: "reviewed",
+                }));
+            setDetections(newDets);
+            exitReviewMode();
+        } catch (err: any) {
+            setSaveError(err.message ?? "Failed to save");
+        } finally {
+            setSavingReview(false);
+        }
+    }
+
+    async function handleDeleteDetection(detectionId: string) {
+    try {
+        await api.deleteDetection(detectionId);
+        setDetections(prev => prev.filter(d => d.id !== detectionId));
+        if (activeId === detectionId) { setActiveId(null); setActiveType(null); }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
     const cursor = isPanning ? "grabbing" : mode === "draw" ? "crosshair" : hovId ? "pointer" : "default";
     const zoomPct = Math.round(zoomLevel * 100);
     const activeDet = detections.find(d => d.id === activeId && activeType === "det");
@@ -1845,18 +1923,40 @@ function AnnotateReview({
                             flexShrink: 0,
                         }}
                     >
-                        <span>Detections</span>
-                        <span
-                            style={{
-                                color: "var(--text2)",
-                                background: "var(--surface2)",
-                                padding: "1px 8px",
-                                borderRadius: 99,
-                                border: "1px solid var(--border)",
-                            }}
-                        >
-                            {detectionGroups.length + boundingBoxes.length}
-                        </span>
+                        <div className="flex items-center" style={{ gap: 8 }}>
+                            <span>Detections</span>
+                            <span
+                                style={{
+                                    color: "var(--text2)",
+                                    background: "var(--surface2)",
+                                    padding: "1px 8px",
+                                    borderRadius: 99,
+                                    border: "1px solid var(--border)",
+                                }}
+                            >
+                                {detectionGroups.length + boundingBoxes.length}
+                            </span>
+                        </div>
+
+                        {reviewMode ? (
+                            <span style={{ fontSize: 10, color: "var(--primary)", fontWeight: 700 }}>
+                                Review mode
+                            </span>
+                        ) : (
+                            <button
+                                onClick={enterReviewMode}
+                                className={styles.btnSecondary}
+                                style={{
+                                    fontSize: 11,
+                                    padding: "4px 10px",
+                                    background: "var(--primary-pale)",
+                                    border: "1.5px solid var(--primary-light)",
+                                    color: "var(--primary-dark)",
+                                }}
+                            >
+                                Edit & Review
+                            </button>
+                        )}
                     </div>
 
                     <div
@@ -1875,12 +1975,28 @@ function AnnotateReview({
                         ) : (
                             detectionGroups.map(({ primary: d, overlapping }) => {
                                 const active = d.id === activeId && activeType === "det";
+                                const isEditing = editingDetectionId === d.id;
+                                const currentLabel = pendingLabels.get(d.id) ?? d.display_label ?? "Unknown";
+                                const isDirty = pendingLabels.has(d.id) &&
+                                    pendingLabels.get(d.id)?.trim() !== d.display_label;
+                                const isReviewed = d.status === "reviewed";
+
                                 return (
                                     <div key={d.id}>
                                         <div
                                             onClick={() => {
+                                                if (reviewMode) return;
                                                 setActiveId(active ? null : d.id);
                                                 setActiveType(active ? null : "det");
+                                            }}
+                                            onDoubleClick={() => {
+                                                if (!reviewMode) return;
+                                                setEditingDetectionId(d.id);
+                                                if (!pendingLabels.has(d.id)) {
+                                                    setPendingLabels(prev =>
+                                                        new Map(prev).set(d.id, d.display_label ?? "")
+                                                    );
+                                                }
                                             }}
                                             style={{
                                                 display: "flex",
@@ -1888,9 +2004,15 @@ function AnnotateReview({
                                                 gap: 10,
                                                 padding: "8px 10px",
                                                 borderRadius: 7,
-                                                cursor: "pointer",
+                                                cursor: reviewMode ? "text" : "pointer",
                                                 background: active ? "var(--primary-pale)" : "var(--surface2)",
-                                                border: `1.5px solid ${active ? "var(--primary-light)" : "var(--border)"}`,
+                                                border: `1.5px solid ${
+                                                    reviewMode
+                                                        ? "rgba(255,255,255,0.15)"
+                                                        : active
+                                                        ? "var(--primary-light)"
+                                                        : "var(--border)"
+                                                }`,
                                             }}
                                         >
                                             <span
@@ -1898,26 +2020,98 @@ function AnnotateReview({
                                                     width: 10,
                                                     height: 10,
                                                     borderRadius: "50%",
-                                                    background: labelColorMap.get(d.display_label || "Unknown") ?? "var(--text3)",
+                                                    background:
+                                                        labelColorMap.get(d.display_label || "Unknown") ??
+                                                        "var(--text3)",
                                                     flexShrink: 0,
                                                 }}
                                             />
-                                            <span
-                                                style={{
-                                                    flex: 1,
-                                                    fontSize: 13,
-                                                    color: "var(--text1)",
-                                                    fontWeight: active ? 600 : 500,
-                                                    fontStyle: "italic",
-                                                }}
-                                            >
-                                                {d.display_label || "Unknown"}
-                                            </span>
-                                            <span style={{ fontSize: 12, color: "var(--text2)", fontWeight: 700 }}>
-                                                {Math.round((d.score ?? 0) * 100)}%
-                                            </span>
+                                            {isEditing ? (
+                                                <input
+                                                    autoFocus
+                                                    value={currentLabel}
+                                                    onChange={e =>
+                                                        setPendingLabels(prev =>
+                                                            new Map(prev).set(d.id, e.target.value)
+                                                        )
+                                                    }
+                                                    onBlur={() => setEditingDetectionId(null)}
+                                                    onKeyDown={e => {
+                                                        if (e.key === "Enter" || e.key === "Escape")
+                                                            setEditingDetectionId(null);
+                                                    }}
+                                                    onClick={e => e.stopPropagation()}
+                                                    style={{
+                                                        flex: 1,
+                                                        fontSize: 13,
+                                                        fontFamily: "inherit",
+                                                        fontStyle: "italic",
+                                                        fontWeight: 600,
+                                                        background: "transparent",
+                                                        border: "none",
+                                                        borderBottom: "1.5px solid var(--primary)",
+                                                        outline: "none",
+                                                        color: "var(--text1)",
+                                                        padding: "0 2px",
+                                                    }}
+                                                />
+                                            ) : (
+                                                <span
+                                                    style={{
+                                                        flex: 1,
+                                                        fontSize: 13,
+                                                        color: pendingDeletions.has(d.id) ? "var(--text3)" : "var(--text1)",
+                                                        fontWeight: active ? 600 : 500,
+                                                        fontStyle: "italic",
+                                                        textDecoration: pendingDeletions.has(d.id) ? "line-through" : "none",
+                                                    }}
+                                                >
+                                                    {currentLabel}
+                                                </span>
+                                            )}
+                                            {d.score != null && !reviewedWithoutScore.has(d.id) && (
+                                                <span style={{ fontSize: 12, color: "var(--text2)", fontWeight: 700 }}>
+                                                    {Math.round((d.score ?? 0) * 100)}%
+                                                </span>
+                                            )}
+                                            {reviewMode && !isEditing && !pendingDeletions.has(d.id) && (
+                                                <span style={{ fontSize: 10, color: "var(--text3)", opacity: 0.6 }}>
+                                                    edit
+                                                </span>
+                                            )}
+                                            {reviewMode && (
+                                                <button
+                                                    onClick={e => {
+                                                        e.stopPropagation();
+                                                        setPendingDeletions(prev => {
+                                                            const next = new Set(prev);
+                                                            if (next.has(d.id)) {
+                                                                next.delete(d.id);
+                                                            } else {
+                                                                next.add(d.id);
+                                                            }
+                                                            return next;
+                                                        });
+                                                    }}
+                                                    style={{
+                                                        background: "none",
+                                                        border: "none",
+                                                        color: pendingDeletions.has(d.id) ? "var(--danger)" : "var(--danger)",
+                                                        cursor: "pointer",
+                                                        fontSize: pendingDeletions.has(d.id) ? 11 : 14,
+                                                        fontWeight: pendingDeletions.has(d.id) ? 700 : 400,
+                                                        lineHeight: 1,
+                                                        padding: 2,
+                                                        fontFamily: "inherit",
+                                                    }}
+                                                >
+                                                    {pendingDeletions.has(d.id) ? "undo" : "×"}
+                                                </button>
+                                            )}
                                         </div>
-                                        {overlapping.map((alt: any) => (
+
+                                        {/* Only show overlapping when not reviewed and not in review mode */}
+                                        {!reviewMode && !isReviewed && overlapping.map(alt => (
                                             <div
                                                 key={alt.id}
                                                 style={{
@@ -1933,7 +2127,9 @@ function AnnotateReview({
                                                         width: 6,
                                                         height: 6,
                                                         borderRadius: "50%",
-                                                        background: labelColorMap.get(alt.display_label || "Unknown") ?? "var(--text3)",
+                                                        background:
+                                                            labelColorMap.get(alt.display_label || "Unknown") ??
+                                                            "var(--text3)",
                                                     }}
                                                 />
                                                 <span style={{ flex: 1, fontSize: 12, color: "var(--text2)" }}>
@@ -1952,6 +2148,7 @@ function AnnotateReview({
                         {!loadingBboxes &&
                             boundingBoxes.map(b => {
                                 const active = b.id === activeId && activeType === "bbox";
+                                const bboxColor = labelColorMap.get(b.display_label) ?? "#a78bfa";
                                 return (
                                     <div
                                         key={b.id}
@@ -1967,7 +2164,7 @@ function AnnotateReview({
                                             borderRadius: 7,
                                             cursor: "pointer",
                                             background: active ? "rgba(94,201,154,0.1)" : "var(--surface2)",
-                                            border: `1.5px dashed ${active ? "var(--success)" : "var(--border)"}`,
+                                            border: `1.5px dashed ${active ? bboxColor : "var(--border)"}`,
                                         }}
                                     >
                                         <span
@@ -1975,14 +2172,22 @@ function AnnotateReview({
                                                 width: 10,
                                                 height: 10,
                                                 borderRadius: "50%",
-                                                border: "2px dashed var(--success)",
+                                                background: "transparent",
+                                                border: `2px solid ${bboxColor}`,
                                                 flexShrink: 0,
                                             }}
                                         />
                                         <span style={{ flex: 1, fontSize: 13, color: "var(--text1)", fontWeight: active ? 600 : 500 }}>
                                             {b.display_label}
                                         </span>
-                                        <span style={{ fontSize: 10, color: "var(--success)", fontWeight: 700, marginRight: 4 }}>
+                                        <span
+                                            style={{
+                                                fontSize: 10,
+                                                color: bboxColor,
+                                                fontWeight: 700,
+                                                marginRight: 4,
+                                            }}
+                                        >
                                             drawn
                                         </span>
                                         <button
@@ -2021,53 +2226,92 @@ function AnnotateReview({
                         </button>
                     </div>
 
-                    {activeDet && (
+                    {reviewMode && (
                         <div
                             style={{
                                 borderTop: "1px solid var(--border)",
                                 paddingTop: 12,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 8,
                                 flexShrink: 0,
                             }}
                         >
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                                Edit label
-                            </div>
-                            <input
-                                type="text"
-                                value={editLabel}
-                                onChange={e => setEditLabel(e.target.value)}
-                                onKeyDown={e => { if (e.key === "Enter") handleApprove(); }}
-                                placeholder="e.g. Lutjanus carponotatus"
-                                style={{
-                                    border: "1.5px solid var(--border)",
-                                    borderRadius: 7,
-                                    padding: "8px 10px",
-                                    fontSize: 13,
-                                    fontFamily: "inherit",
-                                    outline: "none",
-                                }}
-                            />
                             {saveError && (
-                                <div style={{ fontSize: 12, color: "var(--danger)", background: "#fff0f0", border: "1px solid #ffd0d0", borderRadius: 6, padding: "6px 10px" }}>
+                                <div
+                                    style={{
+                                        fontSize: 12,
+                                        color: "var(--danger)",
+                                        background: "#fff0f0",
+                                        border: "1px solid #ffd0d0",
+                                        borderRadius: 6,
+                                        padding: "6px 10px",
+                                        marginBottom: 8,
+                                    }}
+                                >
                                     {saveError}
                                 </div>
                             )}
-                            <div className="flex" style={{ gap: 8 }}>
-                                <button
-                                    onClick={handleApprove}
-                                    disabled={saving || !editLabel.trim()}
-                                    className={styles.btnPrimary}
-                                    style={{ flex: 1, justifyContent: "center", background: "var(--success)" }}
-                                >
-                                    {saving ? "Saving…" : "Save & mark reviewed"}
-                                </button>
-                            </div>
+                            <button
+                                onClick={handleSaveReview}
+                                disabled={savingReview}
+                                className={styles.btnPrimary}
+                                style={{
+                                    width: "100%",
+                                    justifyContent: "center",
+                                    background: "var(--success)",
+                                    padding: "10px",
+                                    fontSize: 13,
+                                }}
+                            >
+                                {savingReview ? "Saving…" : `Save & mark all reviewed`}
+                            </button>
+                            <button
+                                onClick={exitReviewMode}
+                                className={styles.btnSecondary}
+                                style={{
+                                    width: "100%",
+                                    justifyContent: "center",
+                                    marginTop: 6,
+                                    fontSize: 12,
+                                }}
+                            >
+                                Cancel
+                            </button>
                         </div>
                     )}
+                </div>
 
+                {/* Filmstrip */}
+                <div
+                    style={{
+                        gridColumn: "1 / span 2",
+                        display: "flex",
+                        gap: 8,
+                        overflowX: "auto",
+                        alignItems: "center",
+                        paddingBottom: 4,
+                    }}
+                >
+                    {frames.map((f, i) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            key={f.id}
+                            src={f.frame_url}
+                            alt={f.source_filename}
+                            onClick={() => goToFrame(i)}
+                            style={{
+                                height: 70,
+                                minWidth: 110,
+                                objectFit: "cover",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                opacity: i === activeFrameIndex ? 1 : 0.55,
+                                border:
+                                    i === activeFrameIndex
+                                        ? "2px solid var(--primary)"
+                                        : "2px solid transparent",
+                                flexShrink: 0,
+                            }}
+                        />
+                    ))}
                 </div>
             </div>
         </div>
