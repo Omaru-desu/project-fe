@@ -2,7 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 import { useState, useActionState } from "react";
-import { Fish, Mail, Lock, User, Check, Building2 } from "lucide-react";
+import { Mail, Lock, User, Building2 } from "lucide-react";
 import { login, register } from "./actions";
 
 type Tab = "login" | "register";
@@ -13,127 +13,131 @@ export function LoginForm() {
     const [tab, setTab] = useState<Tab>("login");
 
     return (
-        <div className="flex w-full" style={{ minHeight: "100vh", background: "var(--bg)" }}>
-            {/* LEFT — navy auth panel */}
-            <aside
-                className="flex flex-col items-center justify-center flex-shrink-0"
-                style={{
-                    width: 440,
-                    background: "var(--navy)",
-                    padding: "60px 50px",
-                }}
-            >
-                <div className="text-center" style={{ marginBottom: 36 }}>
-                    <div
-                        className="flex items-center justify-center mx-auto"
-                        style={{
-                            width: 52,
-                            height: 52,
-                            borderRadius: 14,
-                            background: "var(--primary)",
-                            marginBottom: 14,
-                        }}
-                    >
-                        <Fish size={26} color="#fff" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: "100vh", fontFamily: "var(--font-inter, system-ui, sans-serif)" }}>
+            {/* ── LEFT PANEL ── */}
+            <section style={{
+                position: "relative",
+                background: "radial-gradient(120% 80% at 85% 0%, rgba(120,160,220,0.18) 0%, transparent 55%), radial-gradient(80% 60% at 0% 100%, rgba(60,90,180,0.30) 0%, transparent 60%), linear-gradient(160deg, #2f3e7e 0%, #283567 100%)",
+                color: "#fff",
+                overflow: "hidden",
+                padding: "44px 56px 32px",
+                display: "flex",
+                flexDirection: "column",
+            }}>
+                {/* Subtle grid overlay */}
+                <div aria-hidden style={{
+                    position: "absolute", inset: 0,
+                    backgroundImage: "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px)",
+                    backgroundSize: "56px 56px",
+                    maskImage: "radial-gradient(120% 90% at 50% 30%, #000 30%, transparent 90%)",
+                    pointerEvents: "none",
+                }} />
+
+                <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", maxWidth: 540, width: "100%", margin: "0 auto" }}>
+                    {/* Brand text */}
+                    <div style={{ marginBottom: 80 }}>
+                        <div style={{ fontFamily: "var(--font-source-serif, serif)", fontSize: 20, fontWeight: 600, color: "#fff", letterSpacing: "-0.01em", lineHeight: 1, marginBottom: 4 }}>
+                            OMarine
+                        </div>
+                        <div style={{ fontFamily: "var(--font-dm-mono, monospace)", fontSize: 10.5, fontWeight: 500, letterSpacing: "0.14em", color: "rgba(255,255,255,0.55)", textTransform: "uppercase" }}>
+                            AI underwater annotation
+                        </div>
                     </div>
-                    <div
-                        className="text-white"
-                        style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em" }}
-                    >
-                        OMarine
+
+                    {/* Eyebrow chip */}
+                    <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 8, alignSelf: "flex-start",
+                        height: 26, padding: "0 12px", borderRadius: 999,
+                        background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.16)",
+                        color: "#cfd6ff",
+                        fontFamily: "var(--font-dm-mono, monospace)", fontSize: 10.5, fontWeight: 500,
+                        letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 22,
+                    }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#aab6ff", flexShrink: 0 }} />
+                        AI-powered research tool
+                    </span>
+
+                    {/* Headline */}
+                    <h1 style={{
+                        fontFamily: "var(--font-source-serif, serif)",
+                        fontSize: 50, lineHeight: 1.05, fontWeight: 600,
+                        color: "#fff", letterSpacing: "-0.02em", margin: "0 0 20px",
+                    }}>
+                        Annotate the{" "}
+                        <em style={{ fontStyle: "italic", fontWeight: 500 }}>ocean</em>
+                        {" "}at the speed of research.
+                    </h1>
+
+                    {/* Lede */}
+                    <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "rgba(255,255,255,0.72)", maxWidth: 440, margin: "0 0 36px" }}>
+                        OMarine accelerates underwater video review with AI-assisted species
+                        detection, semantic search, and frame-by-frame annotation,
+                        purpose-built for marine science teams.
+                    </p>
+
+                    {/* Stat cards */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: "auto" }}>
+                        <StatCard icon="lavender" title="AI-assisted species detection" sub="Foundation vision models pre-label every frame">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
+                                <circle cx="9" cy="9" r="2" fill="currentColor" />
+                            </svg>
+                        </StatCard>
+                        <StatCard icon="cyan" title="Semantic search across frames" sub="Find any species, behavior, or habitat in seconds">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                <circle cx="8" cy="8" r="4.5" stroke="currentColor" strokeWidth="1.6" />
+                                <path d="M11.5 11.5 L 15 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                            </svg>
+                        </StatCard>
+                        <StatCard icon="amber" title="Frame-by-frame annotation" sub="Review, correct, and approve detections on every frame">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                <path d="M9 2 L 11 8 H 16 L 12 11.5 L 13.5 17 L 9 13.5 L 4.5 17 L 6 11.5 L 2 8 H 7 Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none" />
+                            </svg>
+                        </StatCard>
                     </div>
-                    <div
-                        style={{
-                            fontSize: 13,
-                            marginTop: 3,
-                            color: "rgba(255,255,255,0.4)",
-                        }}
-                    >
-                        AI underwater annotation
-                    </div>
+
                 </div>
+            </section>
 
-                {tab === "login" ? <LoginPanel /> : <RegisterPanel />}
-            </aside>
-
-            {/* RIGHT — light form panel */}
-            <section className="flex-1 flex items-center justify-center" style={{ padding: 40 }}>
-                <div className="w-full" style={{ maxWidth: 380 }}>
+            {/* ── RIGHT PANEL ── */}
+            <section style={{ background: "#f3f4fa", display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
+                <div style={{ width: "100%", maxWidth: 380 }}>
                     {/* Tab switcher */}
-                    <div
-                        className="flex"
-                        style={{
-                            background: "var(--surface2)",
-                            border: "1px solid var(--border)",
-                            borderRadius: 10,
-                            padding: 4,
-                            marginBottom: 28,
-                        }}
-                    >
+                    <div style={{
+                        display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4,
+                        padding: 4, background: "#e9ecf6", borderRadius: 10, marginBottom: 24,
+                    }}>
                         {(["login", "register"] as Tab[]).map(t => (
                             <button
                                 key={t}
                                 type="button"
                                 onClick={() => setTab(t)}
-                                className="flex-1 transition-all"
                                 style={{
-                                    padding: "8px 12px",
-                                    borderRadius: 8,
-                                    border: "none",
-                                    background: tab === t ? "var(--surface)" : "transparent",
-                                    color: tab === t ? "var(--primary-dark)" : "var(--text3)",
-                                    fontFamily: "inherit",
-                                    fontSize: 13,
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                    boxShadow: tab === t ? "var(--shadow-sm)" : "none",
+                                    height: 36, border: 0, borderRadius: 7, cursor: "pointer",
+                                    fontFamily: "inherit", fontSize: 13, fontWeight: 500,
+                                    background: tab === t ? "#fff" : "transparent",
+                                    color: tab === t ? "#4f63d2" : "#5b6280",
+                                    boxShadow: tab === t ? "0 1px 2px rgba(20,30,80,0.06)" : "none",
+                                    transition: "all 120ms ease",
                                 }}
                             >
-                                {t === "login" ? "Sign In" : "Create Account"}
+                                {t === "login" ? "Sign in" : "Create Account"}
                             </button>
                         ))}
                     </div>
 
                     {tab === "login" && (
                         <>
-                            <Heading
-                                title="Welcome back"
-                                subtitle="Sign in to your OMarine account"
-                            />
-                            <form action={loginAction} className="flex flex-col gap-3.5">
-                                <Field
-                                    label="Email"
-                                    name="email"
-                                    type="email"
-                                    placeholder="you@institution.edu"
-                                    icon={<Mail size={15} />}
-                                    error={loginState?.errors?.email?.[0]}
-                                />
-                                <Field
-                                    label="Password"
-                                    name="password"
-                                    type="password"
-                                    placeholder="••••••••"
-                                    icon={<Lock size={15} />}
-                                    error={loginState?.errors?.password?.[0]}
-                                />
+                            <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.015em", color: "#1f2547", margin: "0 0 6px" }}>Welcome back</h2>
+                            <p style={{ fontSize: 13.5, color: "#8a90ad", margin: "0 0 24px" }}>Sign in to your OMarine account</p>
+                            <form action={loginAction} style={{ display: "flex", flexDirection: "column" }}>
+                                <Field label="Email" name="email" type="email" placeholder="you@institution.edu" icon={<Mail size={15} />} error={loginState?.errors?.email?.[0]} />
+                                <Field label="Password" name="password" type="password" placeholder="••••••••" icon={<Lock size={15} />} error={loginState?.errors?.password?.[0]} />
                                 <SubmitButton label="Sign in" />
                             </form>
-                            <p className="text-center" style={{ marginTop: 20, fontSize: 13, color: "var(--text3)" }}>
+                            <p style={{ textAlign: "center", marginTop: 18, fontSize: 13, color: "#8a90ad" }}>
                                 No account?{" "}
-                                <button
-                                    type="button"
-                                    onClick={() => setTab("register")}
-                                    style={{
-                                        background: "none",
-                                        border: "none",
-                                        color: "var(--primary)",
-                                        fontWeight: 600,
-                                        cursor: "pointer",
-                                        fontSize: 13,
-                                        fontFamily: "inherit",
-                                    }}
-                                >
+                                <button type="button" onClick={() => setTab("register")} style={{ background: "none", border: "none", color: "#4f63d2", fontWeight: 600, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
                                     Create one
                                 </button>
                             </p>
@@ -142,66 +146,21 @@ export function LoginForm() {
 
                     {tab === "register" && (
                         <>
-                            <Heading title="Create account" subtitle="Join the OMarine community" />
-                            <form action={registerAction} className="flex flex-col gap-3">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <Field
-                                        label="First name"
-                                        name="firstName"
-                                        type="text"
-                                        placeholder="Jane"
-                                        icon={<User size={15} />}
-                                        error={registerState?.errors?.firstName?.[0]}
-                                    />
-                                    <Field
-                                        label="Last name"
-                                        name="lastName"
-                                        type="text"
-                                        placeholder="Lambert"
-                                        error={registerState?.errors?.lastName?.[0]}
-                                    />
+                            <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.015em", color: "#1f2547", margin: "0 0 6px" }}>Create account</h2>
+                            <p style={{ fontSize: 13.5, color: "#8a90ad", margin: "0 0 24px" }}>Join the OMarine community</p>
+                            <form action={registerAction} style={{ display: "flex", flexDirection: "column" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                                    <Field label="First name" name="firstName" type="text" placeholder="Jane" icon={<User size={15} />} error={registerState?.errors?.firstName?.[0]} />
+                                    <Field label="Last name" name="lastName" type="text" placeholder="Lambert" error={registerState?.errors?.lastName?.[0]} />
                                 </div>
-                                <Field
-                                    label="Email"
-                                    name="email"
-                                    type="email"
-                                    placeholder="you@institution.edu"
-                                    icon={<Mail size={15} />}
-                                    error={registerState?.errors?.email?.[0]}
-                                />
-                                <Field
-                                    label="Organisation"
-                                    name="org"
-                                    type="text"
-                                    placeholder="FFT / CSIRO / University…"
-                                    icon={<Building2 size={15} />}
-                                    error={registerState?.errors?.org?.[0]}
-                                />
-                                <Field
-                                    label="Password"
-                                    name="password"
-                                    type="password"
-                                    placeholder="Min. 8 characters"
-                                    icon={<Lock size={15} />}
-                                    error={registerState?.errors?.password?.[0]}
-                                />
+                                <Field label="Email" name="email" type="email" placeholder="you@institution.edu" icon={<Mail size={15} />} error={registerState?.errors?.email?.[0]} />
+                                <Field label="Organisation" name="org" type="text" placeholder="FFT / CSIRO / University…" icon={<Building2 size={15} />} error={registerState?.errors?.org?.[0]} />
+                                <Field label="Password" name="password" type="password" placeholder="Min. 8 characters" icon={<Lock size={15} />} error={registerState?.errors?.password?.[0]} />
                                 <SubmitButton label="Create account" />
                             </form>
-                            <p className="text-center" style={{ marginTop: 16, fontSize: 13, color: "var(--text3)" }}>
+                            <p style={{ textAlign: "center", marginTop: 18, fontSize: 13, color: "#8a90ad" }}>
                                 Have an account?{" "}
-                                <button
-                                    type="button"
-                                    onClick={() => setTab("login")}
-                                    style={{
-                                        background: "none",
-                                        border: "none",
-                                        color: "var(--primary)",
-                                        fontWeight: 600,
-                                        cursor: "pointer",
-                                        fontSize: 13,
-                                        fontFamily: "inherit",
-                                    }}
-                                >
+                                <button type="button" onClick={() => setTab("login")} style={{ background: "none", border: "none", color: "#4f63d2", fontWeight: 600, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
                                     Sign in
                                 </button>
                             </p>
@@ -213,165 +172,37 @@ export function LoginForm() {
     );
 }
 
-function Heading({ title, subtitle }: { title: string; subtitle: string }) {
+function StatCard({ icon, title, sub, children }: { icon: "lavender" | "cyan" | "amber"; title: string; sub: string; children: React.ReactNode }) {
+    const iconStyles: Record<string, React.CSSProperties> = {
+        lavender: { background: "rgba(122,139,224,0.22)", border: "1px solid rgba(122,139,224,0.45)", color: "#c8d0ff" },
+        cyan:     { background: "rgba(120,200,220,0.18)", border: "1px solid rgba(120,200,220,0.40)", color: "#b6e1ee" },
+        amber:    { background: "rgba(220,170,90,0.18)",  border: "1px solid rgba(220,170,90,0.40)",  color: "#f1c98a" },
+    };
     return (
-        <div style={{ marginBottom: 24 }}>
-            <h1
-                style={{
-                    fontSize: 24,
-                    fontWeight: 800,
-                    color: "var(--text1)",
-                    letterSpacing: "-0.02em",
-                    marginBottom: 4,
-                }}
-            >
-                {title}
-            </h1>
-            <p style={{ fontSize: 13, color: "var(--text3)" }}>{subtitle}</p>
-        </div>
-    );
-}
-
-function LoginPanel() {
-    const items = [
-        "AI-assisted species detection",
-        "Semantic search across frames",
-        "Active learning prioritisation",
-        "Export to YOLO / COCO",
-    ];
-    return (
-        <div
-            style={{
-                background: "rgba(255,255,255,0.06)",
-                borderRadius: 12,
-                padding: "22px 24px",
-                width: "100%",
-                border: "1px solid rgba(255,255,255,0.1)",
-            }}
-        >
-            <div
-                style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: "rgba(255,255,255,0.4)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                    marginBottom: 12,
-                }}
-            >
-                Why OMarine?
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 18px", borderRadius: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", backdropFilter: "blur(4px)" }}>
+            <div style={{ width: 38, height: 38, borderRadius: 9, display: "grid", placeItems: "center", flexShrink: 0, ...iconStyles[icon] }}>
+                {children}
             </div>
-            {items.map(t => (
-                <div
-                    key={t}
-                    className="flex items-start gap-2"
-                    style={{ marginBottom: 10 }}
-                >
-                    <span
-                        className="flex items-center justify-center flex-shrink-0"
-                        style={{
-                            width: 18,
-                            height: 18,
-                            borderRadius: "50%",
-                            background: "rgba(127,163,232,0.25)",
-                            marginTop: 1,
-                        }}
-                    >
-                        <Check size={10} color="var(--primary-light)" />
-                    </span>
-                    <span
-                        style={{
-                            fontSize: 12,
-                            color: "rgba(255,255,255,0.65)",
-                            lineHeight: 1.4,
-                        }}
-                    >
-                        {t}
-                    </span>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-function RegisterPanel() {
-    const stats: [string, string][] = [
-        ["48", "Researchers"],
-        ["320K", "Frames"],
-        ["94%", "Accuracy"],
-    ];
-    return (
-        <div
-            className="text-center"
-            style={{
-                background: "rgba(255,255,255,0.06)",
-                borderRadius: 12,
-                padding: "22px 24px",
-                width: "100%",
-                border: "1px solid rgba(255,255,255,0.1)",
-            }}
-        >
-            <div className="text-white" style={{ fontSize: 32, fontWeight: 800 }}>
-                10,000+
-            </div>
-            <div
-                style={{
-                    fontSize: 11,
-                    color: "rgba(255,255,255,0.4)",
-                    marginTop: 2,
-                    marginBottom: 16,
-                }}
-            >
-                detections this month
-            </div>
-            <div className="flex justify-around">
-                {stats.map(([v, l]) => (
-                    <div key={l}>
-                        <div className="text-white" style={{ fontSize: 18, fontWeight: 700 }}>
-                            {v}
-                        </div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>{l}</div>
-                    </div>
-                ))}
+            <div>
+                <p style={{ fontSize: 13.5, fontWeight: 600, color: "#fff", margin: "0 0 2px", lineHeight: 1.2 }}>{title}</p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.35 }}>{sub}</p>
             </div>
         </div>
     );
 }
 
-function Field({
-    label,
-    name,
-    type,
-    placeholder,
-    icon,
-    error,
-}: {
-    label: string;
-    name: string;
-    type: string;
-    placeholder: string;
-    icon?: React.ReactNode;
-    error?: string;
+function Field({ label, name, type, placeholder, icon, error }: {
+    label: string; name: string; type: string; placeholder: string;
+    icon?: React.ReactNode; error?: string;
 }) {
     return (
-        <div className="flex flex-col gap-1.5">
-            <label
-                htmlFor={name}
-                style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)" }}
-            >
+        <div style={{ marginBottom: 18 }}>
+            <label htmlFor={name} style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#1f2547", marginBottom: 8 }}>
                 {label}
             </label>
-            <div className="relative">
+            <div style={{ position: "relative" }}>
                 {icon && (
-                    <span
-                        className="absolute pointer-events-none"
-                        style={{
-                            left: 12,
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            color: "var(--text3)",
-                        }}
-                    >
+                    <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#8a90ad", pointerEvents: "none", display: "flex" }}>
                         {icon}
                     </span>
                 )}
@@ -380,33 +211,28 @@ function Field({
                     name={name}
                     type={type}
                     placeholder={placeholder}
-                    className="w-full"
                     style={{
-                        padding: icon ? "10px 12px 10px 38px" : "10px 12px",
-                        borderRadius: 9,
-                        border: "1.5px solid var(--border)",
-                        fontFamily: "inherit",
-                        fontSize: 14,
-                        color: "var(--text1)",
-                        background: "var(--surface)",
-                        outline: "none",
-                        transition: "border-color 0.15s",
+                        width: "100%", height: 44,
+                        padding: icon ? "0 14px 0 40px" : "0 14px",
+                        fontFamily: "inherit", fontSize: 14, color: "#1f2547",
+                        background: "#eef0fa", border: "1px solid transparent",
+                        borderRadius: 9, outline: "none",
+                        transition: "border-color 120ms ease, box-shadow 120ms ease, background 120ms ease",
                     }}
-                    onFocus={e => (e.currentTarget.style.borderColor = "var(--primary)")}
-                    onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
+                    onFocus={e => {
+                        e.currentTarget.style.borderColor = "#7a8be0";
+                        e.currentTarget.style.background = "#fff";
+                        e.currentTarget.style.boxShadow = "0 0 0 4px rgba(122,139,224,0.18)";
+                    }}
+                    onBlur={e => {
+                        e.currentTarget.style.borderColor = "transparent";
+                        e.currentTarget.style.background = "#eef0fa";
+                        e.currentTarget.style.boxShadow = "none";
+                    }}
                 />
             </div>
             {error && (
-                <div
-                    style={{
-                        fontSize: 12,
-                        color: "var(--danger)",
-                        background: "#fff0f0",
-                        border: "1px solid #ffd0d0",
-                        borderRadius: 7,
-                        padding: "6px 10px",
-                    }}
-                >
+                <div style={{ fontSize: 12, color: "#f07070", background: "#fff0f0", border: "1px solid #ffd0d0", borderRadius: 7, padding: "6px 10px", marginTop: 6 }}>
                     {error}
                 </div>
             )}
@@ -421,18 +247,16 @@ function SubmitButton({ label }: { label: string }) {
             type="submit"
             disabled={pending}
             style={{
-                padding: 11,
-                borderRadius: 9,
-                border: "none",
-                background: pending ? "var(--primary-light)" : "var(--primary)",
-                color: "#fff",
-                fontFamily: "inherit",
-                fontSize: 14,
-                fontWeight: 700,
+                width: "100%", height: 46, border: 0, borderRadius: 10,
+                background: pending ? "#7a8be0" : "#4f63d2",
+                color: "#fff", fontFamily: "inherit", fontSize: 14, fontWeight: 600,
                 cursor: pending ? "wait" : "pointer",
+                boxShadow: "0 1px 2px rgba(20,30,80,0.10), 0 8px 22px rgba(79,99,210,0.28)",
+                transition: "filter 120ms ease, transform 80ms ease",
                 marginTop: 4,
-                transition: "background 0.15s",
             }}
+            onMouseEnter={e => { if (!pending) e.currentTarget.style.filter = "brightness(1.05)"; }}
+            onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}
         >
             {pending ? "Loading…" : label}
         </button>

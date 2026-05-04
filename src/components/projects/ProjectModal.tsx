@@ -199,62 +199,116 @@ export default function ProjectModal({
                         <label
                             style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)" }}
                         >
-                            Status
+                            Type
                         </label>
-                        <div className="flex" style={{ gap: 10 }}>
-                            {TYPE_OPTIONS.map(opt => {
-                                const active = type === opt.value;
-                                return (
-                                    <div
-                                        key={opt.value}
-                                        onClick={() => setType(opt.value)}
-                                        style={{
-                                            flex: 1,
-                                            padding: "11px 13px",
-                                            borderRadius: 9,
-                                            border: `2px solid ${active ? "var(--primary)" : "var(--border)"}`,
-                                            background: active ? "var(--primary-pale)" : "var(--surface2)",
-                                            cursor: "pointer",
-                                            transition: "all 0.15s",
-                                        }}
-                                    >
-                                        <div
-                                            className="flex items-center"
-                                            style={{ gap: 7, marginBottom: 2 }}
-                                        >
-                                            <span
-                                                style={{
-                                                    width: 8,
-                                                    height: 8,
-                                                    borderRadius: "50%",
-                                                    background: opt.dot,
-                                                }}
-                                            />
-                                            <span
-                                                style={{
-                                                    fontSize: 12,
-                                                    fontWeight: 600,
-                                                    color: active
-                                                        ? "var(--primary-dark)"
-                                                        : "var(--text1)",
-                                                }}
-                                            >
-                                                {opt.label}
-                                            </span>
-                                        </div>
+                        {mode === "edit" ? (
+                            <>
+                                {(() => {
+                                    const opt = TYPE_OPTIONS.find(o => o.value === type)!;
+                                    return (
                                         <div
                                             style={{
-                                                fontSize: 11,
-                                                color: "var(--text3)",
-                                                paddingLeft: 15,
+                                                padding: "11px 13px",
+                                                borderRadius: 9,
+                                                border: "2px solid var(--border)",
+                                                background: "var(--surface2)",
                                             }}
                                         >
-                                            {opt.sub}
+                                            <div className="flex items-center" style={{ gap: 7, marginBottom: 2 }}>
+                                                <span
+                                                    style={{
+                                                        width: 8,
+                                                        height: 8,
+                                                        borderRadius: "50%",
+                                                        background: opt.dot,
+                                                    }}
+                                                />
+                                                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text1)" }}>
+                                                    {opt.label}
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: 11, color: "var(--text3)", paddingLeft: 15 }}>
+                                                {opt.sub}
+                                            </div>
                                         </div>
+                                    );
+                                })()}
+                                <p style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                                    Project type cannot be changed after creation.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <div className="flex" style={{ gap: 10 }}>
+                                    {TYPE_OPTIONS.map(opt => {
+                                        const active = type === opt.value;
+                                        return (
+                                            <div
+                                                key={opt.value}
+                                                onClick={() => setType(opt.value)}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: "11px 13px",
+                                                    borderRadius: 9,
+                                                    border: `2px solid ${active ? "var(--primary)" : "var(--border)"}`,
+                                                    background: active ? "var(--primary-pale)" : "var(--surface2)",
+                                                    cursor: "pointer",
+                                                    transition: "all 0.15s",
+                                                }}
+                                            >
+                                                <div
+                                                    className="flex items-center"
+                                                    style={{ gap: 7, marginBottom: 2 }}
+                                                >
+                                                    <span
+                                                        style={{
+                                                            width: 8,
+                                                            height: 8,
+                                                            borderRadius: "50%",
+                                                            background: opt.dot,
+                                                        }}
+                                                    />
+                                                    <span
+                                                        style={{
+                                                            fontSize: 12,
+                                                            fontWeight: 600,
+                                                            color: active ? "var(--primary-dark)" : "var(--text1)",
+                                                        }}
+                                                    >
+                                                        {opt.label}
+                                                    </span>
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        fontSize: 11,
+                                                        color: "var(--text3)",
+                                                        paddingLeft: 15,
+                                                    }}
+                                                >
+                                                    {opt.sub}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {type === "test" && (
+                                    <div
+                                        style={{
+                                            marginTop: 6,
+                                            padding: "9px 12px",
+                                            borderRadius: 8,
+                                            background: "var(--warning-pale, #fff8e1)",
+                                            border: "1.5px solid var(--warning, #f59e0b)",
+                                            fontSize: 12,
+                                            color: "var(--warning-dark, #92400e)",
+                                            lineHeight: 1.5,
+                                        }}
+                                    >
+                                        Test project data and frames are automatically deleted after <strong>90 days</strong>.
                                     </div>
-                                );
-                            })}
-                        </div>
+                                )}
+                            </>
+                        )}
                     </div>
 
                     <div

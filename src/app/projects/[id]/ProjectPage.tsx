@@ -9,6 +9,7 @@ import {
     Fragment,
 } from "react";
 import { useRouter } from "next/navigation";
+import { createBrowserSupabaseClient } from "../../../lib/supabase/client";
 import {
     Image as ImageIcon,
     Tag,
@@ -144,6 +145,23 @@ export default function ProjectPage({ projectId }: Props) {
     const [detections, setDetections] = useState<Detection[]>([]);
     const [processing, setProcessing] = useState<ProcessingStatus | null>(null);
     const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+    const [displayName, setDisplayName] = useState("");
+    const [userOrg, setUserOrg] = useState("");
+
+    useEffect(() => {
+        createBrowserSupabaseClient()
+            .auth.getUser()
+            .then(({ data }) => {
+                const meta = data.user?.user_metadata;
+                if (meta?.first_name) {
+                    setDisplayName(`${meta.first_name} ${meta.last_name ?? ""}`.trim());
+                } else {
+                    setDisplayName(data.user?.email ?? "");
+                }
+                setUserOrg(meta?.org ?? "");
+            });
+    }, []);
 
     const [screen, setScreen] = useState<Screen>("gallery");
     const [collapsed, setCollapsed] = useState(false);
@@ -340,6 +358,8 @@ export default function ProjectPage({ projectId }: Props) {
                 project={project}
                 pendingCount={needsReview}
                 onBack={() => router.push("/projects")}
+                displayName={displayName}
+                userOrg={userOrg}
             />
 
             {/* MAIN */}
@@ -409,6 +429,8 @@ function Sidebar({
     project,
     pendingCount,
     onBack,
+    displayName,
+    userOrg,
 }: {
     screen: Screen;
     setScreen: (s: Screen) => void;
@@ -417,6 +439,8 @@ function Sidebar({
     project: { id: string; name: string; type?: "active" | "test" };
     pendingCount: number;
     onBack: () => void;
+    displayName: string;
+    userOrg: string;
 }) {
     const navItems: {
         id: Screen;
@@ -533,14 +557,22 @@ function Sidebar({
                 </form>
                 {collapsed ? (
                     <div className={styles.userPill} style={{ justifyContent: "center" }}>
-                        <div className={styles.userAvatar}>JL</div>
+                        <div className={styles.userAvatar}>
+                            {displayName
+                                ? displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
+                                : "?"}
+                        </div>
                     </div>
                 ) : (
                     <div className={styles.userPill}>
-                        <div className={styles.userAvatar}>JL</div>
+                        <div className={styles.userAvatar}>
+                            {displayName
+                                ? displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
+                                : "?"}
+                        </div>
                         <div>
-                            <div className={styles.userName}>J. Lambert</div>
-                            <div className={styles.userRole}>Marine Ecologist</div>
+                            <div className={styles.userName}>{displayName || "—"}</div>
+                            {userOrg && <div className={styles.userRole}>{userOrg}</div>}
                         </div>
                     </div>
                 )}
