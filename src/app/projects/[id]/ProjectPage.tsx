@@ -867,9 +867,10 @@ function DetectionThumb({
                 const top = (y1 / imgSize.h) * 100;
                 const width = ((x2 - x1) / imgSize.w) * 100;
                 const height = ((y2 - y1) / imgSize.h) * 100;
+                const bboxW = ((x2 - x1) / imgSize.w) * 180;
+                const fontSize = Math.min(11, Math.max(7, bboxW / 8));
                 return (
                     <div
-                        key={detection.id}
                         style={{
                             position: "absolute",
                             left: `${left}%`,
@@ -880,8 +881,27 @@ function DetectionThumb({
                             boxSizing: "border-box",
                             pointerEvents: "none",
                             zIndex: 1,
+                            overflow: "visible",
                         }}
-                    />
+                    >
+                        <div style={{
+                            position: "absolute",
+                            top: top < 5 ? "100%" : 0,
+                            bottom: top < 5 ? "auto" : "auto",
+                            left: 0,
+                            transform: top < 5 ? "translateY(0)" : "translateY(-100%)",
+                            background: "#ff4444",
+                            color: "#fff",
+                            fontSize: `${fontSize}px`,
+                            fontWeight: 700,
+                            padding: "1px 4px",
+                            lineHeight: 1.4,
+                            whiteSpace: "nowrap",
+                            fontFamily: "var(--font-dm-mono), 'DM Mono', monospace",
+                        }}>
+                            {detection.display_label || "Unknown"} {Math.round(detection.score * 100)}%
+                        </div>
+                    </div>
                 );
             })()}
         </div>
@@ -963,18 +983,41 @@ function FrameDetailPanel({
                             const top = (y1 / imgSize.h) * 100;
                             const width = ((x2 - x1) / imgSize.w) * 100;
                             const height = ((y2 - y1) / imgSize.h) * 100;
+                            const bboxW = ((x2 - x1) / imgSize.w) * 258;
+                            const fontSize = Math.min(11, Math.max(7, bboxW / 8));
                             return (
                                 <div
                                     key={det.id}
                                     style={{
                                         position: "absolute",
-                                        left: `${left}%`, top: `${top}%`,
-                                        width: `${width}%`, height: `${height}%`,
+                                        left: `${left}%`,
+                                        top: `${top}%`,
+                                        width: `${width}%`,
+                                        height: `${height}%`,
                                         border: "1.5px solid #ff4444",
                                         boxSizing: "border-box",
-                                        pointerEvents: "none", zIndex: 1,
+                                        pointerEvents: "none",
+                                        zIndex: 1,
+                                        overflow: "visible",
                                     }}
-                                />
+                                >
+                                    <div style={{
+                                        position: "absolute",
+                                        top: top < 5 ? "100%" : 0,
+                                        left: 0,
+                                        transform: top < 5 ? "translateY(0)" : "translateY(-100%)",
+                                        background: "#ff4444",
+                                        color: "#fff",
+                                        fontSize: `${fontSize}px`,
+                                        fontWeight: 700,
+                                        padding: "1px 4px",
+                                        lineHeight: 1.4,
+                                        whiteSpace: "nowrap",
+                                        fontFamily: "var(--font-dm-mono), 'DM Mono', monospace",
+                                    }}>
+                                        {det.display_label || "Unknown"} {Math.round(det.score * 100)}%
+                                    </div>
+                                </div>
                             );
                         })}
                 </div>
@@ -1010,29 +1053,37 @@ function FrameDetailPanel({
                     <div>
                         <div className={styles.detailLabel}>Detections ({detections.length})</div>
                         <div className="flex flex-col" style={{ gap: 6 }}>
-                            {detections.sort((a, b) => b.score - a.score).slice(0, 4).map(d => (
-                                <button
-                                    key={d.id}
-                                    onClick={() => onOpenReview(d)}
-                                    style={{
-                                        textAlign: "left", padding: "8px 10px", borderRadius: 7,
-                                        border: "1.5px solid var(--border)", background: "var(--surface2)",
-                                        cursor: "pointer", fontFamily: "inherit",
-                                    }}
-                                >
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <span style={{ fontSize: 12, fontWeight: 600, fontStyle: "italic", color: "var(--text1)" }}>
-                                            {d.display_label || "Unknown"}
-                                        </span>
-                                        <span style={{ fontSize: 11, fontWeight: 700, color: d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)" }}>
-                                            {Math.round(d.score * 100)}%
-                                        </span>
-                                    </div>
-                                    <div style={{ marginTop: 4 }}>
-                                        <ProgressBar value={d.score * 100} color={d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)"} height={3} />
-                                    </div>
-                                </button>
-                            ))}
+                            {detections
+                                .sort((a, b) => b.score - a.score)
+                                .filter(d => selectedDetectionId === null || d.id === selectedDetectionId)
+                                .slice(0, 4)
+                                .map(d => (
+                                    <button
+                                        key={d.id}
+                                        onClick={() => onOpenReview(d)}
+                                        style={{
+                                            textAlign: "left",
+                                            padding: "8px 10px",
+                                            borderRadius: 7,
+                                            border: "1.5px solid var(--border)",
+                                            background: "var(--surface2)",
+                                            cursor: "pointer",
+                                            fontFamily: "inherit",
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                            <span style={{ fontSize: 12, fontWeight: 600, fontStyle: "italic", color: "var(--text1)" }}>
+                                                {d.display_label || "Unknown"}
+                                            </span>
+                                            <span style={{ fontSize: 11, fontWeight: 700, color: d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)" }}>
+                                                {Math.round(d.score * 100)}%
+                                            </span>
+                                        </div>
+                                        <div style={{ marginTop: 4 }}>
+                                            <ProgressBar value={d.score * 100} color={d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)"} height={3} />
+                                        </div>
+                                    </button>
+                                ))}
                         </div>
                     </div>
                 )}
