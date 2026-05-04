@@ -29,11 +29,17 @@ export default function ProjectsPage() {
     const [editingProject, setEditingProject] = useState<Project | null>(null);
     const [deletingProject, setDeletingProject] = useState<Project | null>(null);
     const [filter, setFilter] = useState<Filter>("all");
+    const [sort, setSort] = useState<"date_desc" | "date_asc" | "alpha_asc" | "alpha_desc">("date_desc");
 
-    const filtered = useMemo(
-        () => (filter === "all" ? projects : projects.filter(p => p.type === filter)),
-        [projects, filter]
-    );
+    const filtered = useMemo(() => {
+        const list = filter === "all" ? projects : projects.filter(p => p.type === filter);
+        return [...list].sort((a, b) => {
+            if (sort === "alpha_asc") return a.name.localeCompare(b.name);
+            if (sort === "alpha_desc") return b.name.localeCompare(a.name);
+            if (sort === "date_asc") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+    }, [projects, filter, sort]);
 
     const handleCreate = async (data: CreateProjectInput | UpdateProjectInput) => {
         await createProject(data as CreateProjectInput);
@@ -118,11 +124,34 @@ export default function ProjectsPage() {
                     <div
                         style={{
                             marginLeft: "auto",
-                            fontSize: 13,
-                            color: "var(--text3)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
                         }}
                     >
-                        {filtered.length} project{filtered.length !== 1 ? "s" : ""}
+                        <select
+                        value={sort}
+                        onChange={e => setSort(e.target.value as "date_desc" | "date_asc" | "alpha_asc" | "alpha_desc")}
+                        style={{
+                            padding: "6px 12px",
+                            borderRadius: 99,
+                            border: "1.5px solid var(--border)",
+                            background: "var(--surface)",
+                            color: "var(--text3)",
+                            fontSize: 13,
+                            fontFamily: "inherit",
+                            cursor: "pointer",
+                            outline: "none",
+                        }}
+                    >
+                        <option value="date_desc">Sort by Newest</option>
+                        <option value="date_asc">Sort by Oldest</option>
+                        <option value="alpha_asc">Sort by A to Z</option>
+                        <option value="alpha_desc">Sort by Z to A</option>
+                    </select>
+                        <div style={{ fontSize: 13, color: "var(--text3)" }}>
+                            {filtered.length} project{filtered.length !== 1 ? "s" : ""}
+                        </div>
                     </div>
                 </div>
 
