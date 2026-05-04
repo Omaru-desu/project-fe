@@ -2069,7 +2069,7 @@ function AnnotateReview({
                                                     {currentLabel}
                                                 </span>
                                             )}
-                                            {d.score != null && !reviewedWithoutScore.has(d.id) && (
+                                            {d.score != null && !reviewedWithoutScore.has(d.id) && !reviewMode && (
                                                 <span style={{ fontSize: 12, color: "var(--text2)", fontWeight: 700 }}>
                                                     {Math.round((d.score ?? 0) * 100)}%
                                                 </span>
@@ -2206,24 +2206,6 @@ function AnnotateReview({
                                 );
                             })}
 
-                        <button
-                            onClick={() => { setMode(m => m === "draw" ? "select" : "draw"); setPendingBox(null); }}
-                            style={{
-                                marginTop: 4,
-                                padding: "8px 10px",
-                                borderRadius: 8,
-                                background: mode === "draw" ? "var(--primary-pale)" : "transparent",
-                                border: mode === "draw" ? "1.5px solid var(--primary)" : "1.5px dashed var(--border)",
-                                color: mode === "draw" ? "var(--primary-dark)" : "var(--text3)",
-                                fontSize: 12,
-                                cursor: "pointer",
-                                fontWeight: 700,
-                                textAlign: "left" as const,
-                                fontFamily: "inherit",
-                            }}
-                        >
-                            {mode === "draw" ? "Cancel draw mode" : "+ Draw new bounding box"}
-                        </button>
                     </div>
 
                     {reviewMode && (
