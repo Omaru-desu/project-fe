@@ -33,7 +33,7 @@ import {
     LayoutGrid,
     type LucideIcon,
 } from "lucide-react";
-import { Detection } from "../../../types/project";
+import { Detection, SemanticResult } from "../../../types/project";
 import * as api from "../../../lib/api";
 import type { BoundingBox } from "../../../lib/api";
 import { logout } from "../../login/actions";
@@ -167,6 +167,13 @@ export default function ProjectPage({ projectId }: Props) {
     // Gallery filters
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [search, setSearch] = useState("");
+
+    // Semantic search
+    const [semanticMode, setSemanticMode] = useState(false);
+    const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
+    const [semanticLoading, setSemanticLoading] = useState(false);
+    const [semanticError, setSemanticError] = useState<string | null>(null);
+    const semanticSeqRef = useRef(0);
     const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
     const [annotateTarget, setAnnotateTarget] = useState<{
         frameId: string;
@@ -312,6 +319,44 @@ export default function ProjectPage({ projectId }: Props) {
         setReviewDetection(null);
     }
 
+    async function runSemanticSearch(q: string) {
+        const trimmed = q.trim();
+        if (!trimmed) return;
+        const seq = ++semanticSeqRef.current;
+        setSemanticLoading(true);
+        setSemanticError(null);
+        try {
+            const res = await api.textSearchDetections(projectId, trimmed, 30);
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticResults(res.results);
+        } catch (err: unknown) {
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticError(err instanceof Error ? err.message : "Search failed");
+            setSemanticResults([]);
+        } finally {
+            if (seq === semanticSeqRef.current) setSemanticLoading(false);
+        }
+    }
+
+    async function runSimilarSearch(detectionId: string) {
+        const seq = ++semanticSeqRef.current;
+        setSemanticMode(true);
+        setSemanticLoading(true);
+        setSemanticError(null);
+        setSearch(`Similar to selected`);
+        try {
+            const res = await api.getSimilarDetections(projectId, detectionId, 30);
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticResults(res.results);
+        } catch (err: unknown) {
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticError(err instanceof Error ? err.message : "Similar search failed");
+            setSemanticResults([]);
+        } finally {
+            if (seq === semanticSeqRef.current) setSemanticLoading(false);
+        }
+    }
+
     // Stats
     const reviewed = detections.filter(d => d.status === "reviewed").length;
     const needsReview = detections.filter(d => d.status === "needs_review").length;
@@ -363,34 +408,46 @@ export default function ProjectPage({ projectId }: Props) {
             {/* MAIN */}
             <div className={styles.main}>
                 {screen === "gallery" && (
-                <GalleryScreen
-                    project={project}
-                    frames={frames}
-                    frameStatus={frameStatus}
-                    detectionsByFrame={detections}
-                    statusFilter={statusFilter}
-                    setStatusFilter={setStatusFilter}
-                    search={search}
-                    setSearch={setSearch}
-                    selectedDetectionId={selectedDetectionId}
-                    setSelectedDetectionId={setSelectedDetectionId}
-                    selectedFrame={selectedFrame}
-                    selectedFrameDetections={selectedFrameDetections}
-                    reviewedCount={reviewed}
-                    needsReviewCount={needsReview}
-                    totalDetections={total}
-                    pct={pct}
-                    processingList={processingList}                                       
-                    onDismissUpload={() => setProcessingList([])}
-                    onUpload={() => setShowUpload(true)}
-                    onStartAnnotating={() => setScreen("annotate")}
-                    onOpenReview={(d) => setReviewDetection(d)}
-                    onOpenInAnnotator={(frameId, detectionId) => {
-                        setAnnotateTarget({ frameId, detectionId });
-                        setScreen("annotate");
-                    }}
-                />
-            )}
+                    <GalleryScreen
+                        project={project}
+                        frames={frames}
+                        frameStatus={frameStatus}
+                        detectionsByFrame={detections}
+                        statusFilter={statusFilter}
+                        setStatusFilter={setStatusFilter}
+                        search={search}
+                        setSearch={setSearch}
+                        selectedDetectionId={selectedDetectionId}
+                        setSelectedDetectionId={setSelectedDetectionId}
+                        selectedFrame={selectedFrame}
+                        selectedFrameDetections={selectedFrameDetections}
+                        reviewedCount={reviewed}
+                        needsReviewCount={needsReview}
+                        totalDetections={total}
+                        pct={pct}
+                        processingList={processingList}
+                        onDismissUpload={(id) => setProcessingList(prev => prev.filter(p => p.uploadId !== id))}
+                        onUpload={() => setShowUpload(true)}
+                        onStartAnnotating={() => setScreen("annotate")}
+                        onOpenInAnnotator={(frameId, detectionId) => {
+                            setAnnotateTarget({ frameId, detectionId });
+                            setScreen("annotate");
+                        }}
+                        onOpenReview={(d) => setReviewDetection(d)}
+                        semanticMode={semanticMode}
+                        setSemanticMode={(v) => {
+                            setSemanticMode(v);
+                            setSemanticResults([]);
+                            setSemanticError(null);
+                        }}
+                        semanticResults={semanticResults}
+                        semanticLoading={semanticLoading}
+                        semanticError={semanticError}
+                        onSemanticSearch={runSemanticSearch}
+                        onSemanticClear={() => { setSemanticResults([]); setSearch(""); setSemanticMode(false); }}
+                        onFindSimilar={runSimilarSearch}
+                    />
+                )}
                 {screen === "annotate" && (
                     <AnnotateScreen
                         project={project}
@@ -612,6 +669,14 @@ function GalleryScreen({
     onStartAnnotating,
     onOpenReview,
     onOpenInAnnotator,
+    semanticMode,
+    setSemanticMode,
+    semanticResults,
+    semanticLoading,
+    semanticError,
+    onSemanticSearch,
+    onSemanticClear,
+    onFindSimilar,
 }: {
     project: { name: string };
     frames: FrameRow[];
@@ -635,6 +700,14 @@ function GalleryScreen({
     onStartAnnotating: () => void;
     onOpenReview: (d: Detection) => void;
     onOpenInAnnotator: (frameId: string, detectionId: string) => void;
+    semanticMode: boolean;
+    setSemanticMode: (v: boolean) => void;
+    semanticResults: SemanticResult[];
+    semanticLoading: boolean;
+    semanticError: string | null;
+    onSemanticSearch: (q: string) => void;
+    onSemanticClear: () => void;
+    onFindSimilar: (detectionId: string) => void;
 }) {
     const [sortConf, setSortConf] = useState<"off" | "high" | "low">("off");
 
@@ -764,12 +837,25 @@ function GalleryScreen({
                         <Search size={14} color="var(--text3)" />
                         <input
                             value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            placeholder="Search frames…"
+                            onChange={e => {
+                                setSearch(e.target.value);
+                                if (semanticMode && !e.target.value.trim()) onSemanticClear();
+                            }}
+                            onKeyDown={e => {
+                                if (semanticMode && e.key === "Enter") onSemanticSearch(search);
+                            }}
+                            placeholder={semanticMode ? "Describe what to find… (Enter)" : "Search frames…"}
                             className={styles.searchInput}
                         />
                     </div>
-                    {statusFilter !== "all" && (
+                    <button
+                        className={`${styles.semanticBtn} ${semanticMode ? styles.semanticBtnActive : ""}`}
+                        onClick={() => setSemanticMode(!semanticMode)}
+                        title="Toggle AI semantic search"
+                    >
+                        AI Search
+                    </button>
+                    {!semanticMode && statusFilter !== "all" && (
                         <button
                             onClick={() => setStatusFilter("all")}
                             className={styles.btnSecondary}
@@ -778,16 +864,18 @@ function GalleryScreen({
                             Clear filter
                         </button>
                     )}
-                    <select
-                        value={sortConf}
-                        onChange={e => setSortConf(e.target.value as "off" | "high" | "low")}
-                        className={styles.btnSecondary}
-                        style={{ padding: "5px 10px", fontSize: 11, cursor: "pointer" }}
-                    >
-                        <option value="off">Sort by confidence</option>
-                        <option value="high">Confidence ↓ high</option>
-                        <option value="low">Confidence ↑ low</option>
-                    </select>
+                    {!semanticMode && (
+                        <select
+                            value={sortConf}
+                            onChange={e => setSortConf(e.target.value as "off" | "high" | "low")}
+                            className={styles.btnSecondary}
+                            style={{ padding: "5px 10px", fontSize: 11, cursor: "pointer" }}
+                        >
+                            <option value="off">Sort by confidence</option>
+                            <option value="high">Confidence ↓ high</option>
+                            <option value="low">Confidence ↑ low</option>
+                        </select>
+                    )}
                 </div>
             </div>
 
@@ -795,6 +883,55 @@ function GalleryScreen({
             <div className={styles.galleryBody}>
                 <div className={styles.frameGrid}>
                     {(() => {
+                        if (semanticMode) {
+                            if (semanticLoading) {
+                                return <div className={styles.emptyState}>Searching…</div>;
+                            }
+                            if (semanticError) {
+                                return <div className={styles.emptyState} style={{ color: "var(--danger, #f87171)" }}>{semanticError}</div>;
+                            }
+                            if (semanticResults.length === 0) {
+                                return <div className={styles.emptyState}>Type a description and press Enter to search.</div>;
+                            }
+                            const semanticDetections = semanticResults
+                                .map(r => {
+                                    const det = detectionsByFrame.find(d => d.id === r.detection_id);
+                                    if (!det) return null;
+                                    return { det, similarity: r.similarity };
+                                })
+                                .filter((x): x is { det: Detection; similarity: number } => x !== null);
+
+                            if (semanticDetections.length === 0) {
+                                return <div className={styles.emptyState}>No loaded detections matched the results.</div>;
+                            }
+                            return (
+                                <>
+                                    <div className={styles.semanticChip}>
+                                        {semanticDetections.length} match{semanticDetections.length !== 1 ? "es" : ""} for &ldquo;{search}&rdquo;
+                                        <button className={styles.semanticChipClear} onClick={onSemanticClear}>✕</button>
+                                    </div>
+                                    {semanticDetections.map(({ det, similarity }) => {
+                                        const frame = frames.find(f => f.id === det.frame_id);
+                                        if (!frame) return null;
+                                        return (
+                                            <DetectionThumb
+                                                key={det.id}
+                                                detection={det}
+                                                frame={frame}
+                                                selected={selectedDetectionId === det.id}
+                                                similarity={similarity}
+                                                onClick={() =>
+                                                    setSelectedDetectionId(
+                                                        selectedDetectionId === det.id ? null : det.id
+                                                    )
+                                                }
+                                            />
+                                        );
+                                    })}
+                                </>
+                            );
+                        }
+
                         const visibleDetections = detectionsByFrame.filter(d => {
                             const matchStatus =
                                 statusFilter === "all" ||
@@ -857,6 +994,7 @@ function GalleryScreen({
                         onAnnotate={onStartAnnotating}
                         onOpenReview={onOpenReview}
                         onOpenInAnnotator={onOpenInAnnotator}
+                        onFindSimilar={onFindSimilar}
                     />
                 )}
             </div>
@@ -869,11 +1007,13 @@ function DetectionThumb({
     frame,
     selected,
     onClick,
+    similarity,
 }: {
     detection: Detection;
     frame: FrameRow;
     selected: boolean;
     onClick: () => void;
+    similarity?: number;
 }) {
     const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
     const statusColor =
@@ -969,6 +1109,13 @@ function DetectionThumb({
                     </div>
                 );
             })()}
+
+            {/* similarity badge */}
+            {similarity !== undefined && (
+                <div className={styles.matchBadge}>
+                    {Math.round(similarity * 100)}% match
+                </div>
+            )}
         </div>
     );
 }
@@ -982,6 +1129,7 @@ function FrameDetailPanel({
     onOpenReview,
     selectedDetectionId,
     onOpenInAnnotator,
+    onFindSimilar,
 }: {
     frame: FrameRow;
     detections: Detection[];
@@ -991,6 +1139,7 @@ function FrameDetailPanel({
     onOpenReview: (d: Detection) => void;
     selectedDetectionId: string | null;
     onOpenInAnnotator: (frameId: string, detectionId: string) => void;
+    onFindSimilar: (detectionId: string) => void;
 }) {
     const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
 
@@ -1156,6 +1305,15 @@ function FrameDetailPanel({
                 )}
 
                 <div className="flex flex-col" style={{ gap: 6, paddingTop: 4 }}>
+                    {selectedDetectionId && (
+                        <button
+                            onClick={() => onFindSimilar(selectedDetectionId)}
+                            className={styles.btnSecondary}
+                            style={{ width: "100%", justifyContent: "center" }}
+                        >
+                            Find Similar
+                        </button>
+                    )}
                     <button
                         onClick={() => onOpenInAnnotator(frame.id, selectedDetectionId ?? "")}
                         className={styles.btnPrimary}

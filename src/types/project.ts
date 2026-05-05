@@ -41,6 +41,17 @@ export interface Detection {
     annotation_source: "machine" | "human";
 }
 
+export interface SemanticResult {
+    detection_id: string;
+    frame_id: string;
+    label_id: string;
+    display_label: string;
+    bbox: number[];
+    score: number;
+    crop_url: string | null;
+    similarity: number;
+}
+
 export interface ProjectDetail {
     id: string;
     name: string;
