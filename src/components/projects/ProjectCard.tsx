@@ -134,12 +134,12 @@ export default function ProjectCard({ project, onEditAction, onDeleteAction }: P
                         gap: 4,
                         fontSize: 10,
                         fontWeight: 600,
-                        color: project.model_type === "custom" ? "var(--teal, #2dd4bf)" : "var(--text3)",
-                        background: project.model_type === "custom" ? "rgba(45,212,191,0.08)" : "var(--surface2)",
-                        border: `1px solid ${project.model_type === "custom" ? "rgba(45,212,191,0.3)" : "var(--border)"}`,
+                        color: project.model_type === "custom" ? "var(--text2)" : "var(--primary)",
+                        background: project.model_type === "custom" ? "var(--surface2)" : "rgba(74,111,196,0.08)",
+                        // border: `1px solid ${project.model_type === "custom" ? "var(--border)" : "rgba(74,111,196,0.3)"}`,
                         borderRadius: 99,
                         padding: "2px 8px",
-                        marginTop: 4,
+                        marginBottom: 12,
                     }}
                 >
                     {project.model_type === "custom" ? "Custom Model" : "Pretrained Model"}
