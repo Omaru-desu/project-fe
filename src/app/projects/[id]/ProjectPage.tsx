@@ -17,7 +17,6 @@ import {
     Database,
     ChevronLeft,
     Menu,
-    Bell,
     Search,
     X,
     LogOut,
@@ -62,6 +61,7 @@ interface FrameRow {
     source_filename: string;
     frame_gcs_uri: string;
     status: string;
+    is_approved: boolean;
     detections: {
         id: string;
         bbox: number[];
@@ -136,6 +136,8 @@ export default function ProjectPage({ projectId }: Props) {
         id: string;
         name: string;
         type?: "active" | "test";
+        model_type?: "pretrained" | "custom";
+        has_checkpoint?: boolean;
     } | null>(null);
     const [frames, setFrames] = useState<FrameRow[]>([]);
     const [detections, setDetections] = useState<Detection[]>([]);
@@ -163,6 +165,7 @@ export default function ProjectPage({ projectId }: Props) {
     const [collapsed, setCollapsed] = useState(false);
     const [showUpload, setShowUpload] = useState(false);
     const [reviewDetection, setReviewDetection] = useState<Detection | null>(null);
+    const [retrainToast, setRetrainToast] = useState(false);
 
     // Gallery filters
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -216,46 +219,46 @@ export default function ProjectPage({ projectId }: Props) {
 
     // Initial frames load
     useEffect(() => {
-    let cancelled = false;
-    api.getProjectFrames(projectId)
-        .then(async data => {
-            if (cancelled) return;
-            setFrames(data.frames as FrameRow[]);
-            rebuildDetections(data.frames as FrameRow[]);
+        let cancelled = false;
+        api.getProjectFrames(projectId)
+            .then(async data => {
+                if (cancelled) return;
+                setFrames(data.frames as FrameRow[]);
+                rebuildDetections(data.frames as FrameRow[]);
 
-            const uploadIds = [...new Set(
-                data.frames.map((f: any) => f.upload_id).filter(Boolean)
-            )] as string[];
+                const uploadIds = [...new Set(
+                    data.frames.map((f: any) => f.upload_id).filter(Boolean)
+                )] as string[];
 
-            for (const uploadId of uploadIds) {
-    try {
-        const status = await api.getUploadStatus(uploadId);
-        if (cancelled) return;
+                for (const uploadId of uploadIds) {
+                    try {
+                        const status = await api.getUploadStatus(uploadId);
+                        if (cancelled) return;
 
-        const inProgress = status.status !== "failed" &&
-                           status.status !== "segmented" &&
-                           status.status !== "ready";
+                        const inProgress = status.status !== "failed" &&
+                            status.status !== "segmented" &&
+                            status.status !== "ready";
 
-        // only add to list if currently in progress
-        if (inProgress) {
-            setProcessingList(prev => {
-                if (prev.find(p => p.uploadId === uploadId)) return prev;
-                return [...prev, {
-                    uploadId,
-                    totalFrames: status.total_frames,
-                    framesProcessed: status.frames_processed,
-                    status: status.status,
-                    errorMessage: (status as any).error_message,
-                }];
-            });
-            startPolling(uploadId, status.total_frames);
-        }
-    } catch (err) {
-        console.error(err);
-    }
-}
-        })
-        .catch(console.error);
+                        // only add to list if currently in progress
+                        if (inProgress) {
+                            setProcessingList(prev => {
+                                if (prev.find(p => p.uploadId === uploadId)) return prev;
+                                return [...prev, {
+                                    uploadId,
+                                    totalFrames: status.total_frames,
+                                    framesProcessed: status.frames_processed,
+                                    status: status.status,
+                                    errorMessage: (status as any).error_message,
+                                }];
+                            });
+                            startPolling(uploadId, status.total_frames);
+                        }
+                    } catch (err) {
+                        console.error(err);
+                    }
+                }
+            })
+            .catch(console.error);
 
         return () => {
             cancelled = true;
@@ -265,36 +268,36 @@ export default function ProjectPage({ projectId }: Props) {
     }, [projectId]);
 
     function startPolling(uploadId: string, totalFrames: number) {
-    setProcessingList(prev => {
-        if (prev.find(p => p.uploadId === uploadId)) return prev;
-        return [...prev, { uploadId, totalFrames, framesProcessed: 0, status: "processing" }];
-    });
+        setProcessingList(prev => {
+            if (prev.find(p => p.uploadId === uploadId)) return prev;
+            return [...prev, { uploadId, totalFrames, framesProcessed: 0, status: "processing" }];
+        });
 
-    const intervalId = setInterval(async () => {
-        try {
-            const status = await api.getUploadStatus(uploadId);
+        const intervalId = setInterval(async () => {
+            try {
+                const status = await api.getUploadStatus(uploadId);
 
-            setProcessingList(prev => prev.map(p =>
-                p.uploadId === uploadId
-                    ? {
-                        ...p,
-                        totalFrames: status.total_frames,
-                        framesProcessed: status.frames_processed,
-                        status: status.status,
-                        errorMessage: (status as any).error_message,
-                    }
-                    : p
-            ));
+                setProcessingList(prev => prev.map(p =>
+                    p.uploadId === uploadId
+                        ? {
+                            ...p,
+                            totalFrames: status.total_frames,
+                            framesProcessed: status.frames_processed,
+                            status: status.status,
+                            errorMessage: (status as any).error_message,
+                        }
+                        : p
+                ));
 
-            const data = await api.getProjectFrames(projectId);
-            setFrames(data.frames as FrameRow[]);
-            rebuildDetections(data.frames as FrameRow[]);
+                const data = await api.getProjectFrames(projectId);
+                setFrames(data.frames as FrameRow[]);
+                rebuildDetections(data.frames as FrameRow[]);
 
-            const done = status.status === "segmented" ||
-                         status.status === "failed" ||
-                         status.status === "ready";
+                const done = status.status === "segmented" ||
+                    status.status === "failed" ||
+                    status.status === "ready";
 
-            if (done) clearInterval(intervalId);
+                if (done) clearInterval(intervalId);
 
             } catch (err) {
                 console.error(err);
@@ -456,6 +459,11 @@ export default function ProjectPage({ projectId }: Props) {
                         initialFrameId={annotateTarget?.frameId ?? null}
                         initialDetectionId={annotateTarget?.detectionId ?? null}
                         onEntered={() => setAnnotateTarget(null)}
+                        onRetrain={() => {
+                            setRetrainToast(true);
+                            setTimeout(() => setRetrainToast(false), 5000);
+                        }}
+                        hasCheckpoint={project.has_checkpoint ?? true}
                     />
                 )}
                 {screen === "models" && <ModelsScreen />}
@@ -475,6 +483,29 @@ export default function ProjectPage({ projectId }: Props) {
                     onClose={() => setReviewDetection(null)}
                     onMarkReviewed={handleModalReviewed}
                 />
+            )}
+            {retrainToast && (
+                <div style={{
+                    position: "fixed",
+                    bottom: 24,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "var(--surface)",
+                    border: "1.5px solid rgba(45,212,191,0.4)",
+                    borderRadius: 10,
+                    padding: "12px 20px",
+                    boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    zIndex: 100,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text1)",
+                    whiteSpace: "nowrap",
+                }}>
+                    10 frames approved — model retraining has started!
+                </div>
             )}
         </div>
     );
@@ -694,7 +725,7 @@ function GalleryScreen({
     needsReviewCount: number;
     totalDetections: number;
     pct: number;
-    processingList: ProcessingStatus [];
+    processingList: ProcessingStatus[];
     onDismissUpload: (id: string) => void;
     onUpload: () => void;
     onStartAnnotating: () => void;
@@ -749,58 +780,58 @@ function GalleryScreen({
 
             {/* Processing bar */}
             {processingList.length > 0 && (() => {
-    const p = processingList[processingList.length - 1];
-    const isDone = p.status === "segmented" || p.status === "ready";
-    const isFailed = p.status === "failed";
-    const pct = p.totalFrames > 0 ? (p.framesProcessed / p.totalFrames) * 100 : 0;
+                const p = processingList[processingList.length - 1];
+                const isDone = p.status === "segmented" || p.status === "ready";
+                const isFailed = p.status === "failed";
+                const pct = p.totalFrames > 0 ? (p.framesProcessed / p.totalFrames) * 100 : 0;
 
-    return (
-        <div
-            className={styles.processingBar}
-            style={{
-                background: isFailed ? "rgba(220,50,50,0.08)" : isDone ? "rgba(94,201,154,0.08)" : undefined,
-                borderBottom: `1px solid ${isFailed ? "rgba(220,50,50,0.2)" : isDone ? "rgba(94,201,154,0.2)" : "rgba(255,255,255,0.06)"}`,
-            }}
-        >
-            {!isDone && !isFailed && <div className={styles.processingSpinner} />}
-            {isDone && <span style={{ fontSize: 14, color: "var(--success)", flexShrink: 0 }}>✓</span>}
-            {isFailed && <span style={{ fontSize: 14, color: "var(--danger)", flexShrink: 0 }}>✕</span>}
-
-            <span className={styles.processingLabel} style={{
-                color: isFailed ? "var(--danger)" : isDone ? "var(--success)" : undefined,
-            }}>
-                {isDone
-                    ? `Upload complete — ${p.framesProcessed} of ${p.totalFrames} frames processed`
-                    : isFailed
-                    ? `Upload failed${p.errorMessage ? `: ${p.errorMessage.slice(0, 80)}` : ""}`
-                    : `Analysing frames — ${p.framesProcessed} of ${p.totalFrames} processed`}
-            </span>
-
-            {!isFailed && (
-                <div className={styles.processingTrack}>
+                return (
                     <div
-                        className={styles.processingFill}
+                        className={styles.processingBar}
                         style={{
-                            width: `${isDone ? 100 : pct}%`,
-                            background: isDone ? "var(--success)" : undefined,
-                            transition: "width 0.4s ease",
+                            background: isFailed ? "rgba(220,50,50,0.08)" : isDone ? "rgba(94,201,154,0.08)" : undefined,
+                            borderBottom: `1px solid ${isFailed ? "rgba(220,50,50,0.2)" : isDone ? "rgba(94,201,154,0.2)" : "rgba(255,255,255,0.06)"}`,
                         }}
-                    />
-                </div>
-            )}
-            {(isDone || isFailed) && (
-                <button
-                    onClick={() => onDismissUpload(p.uploadId)}
-                    style={{
-                        background: "none", border: "none", cursor: "pointer",
-                        color: "var(--text3)", fontSize: 18, lineHeight: 1,
-                        padding: "0 4px", flexShrink: 0,
-                    }}
-                >×</button>
-            )}
-        </div>
-    );
-})()}
+                    >
+                        {!isDone && !isFailed && <div className={styles.processingSpinner} />}
+                        {isDone && <span style={{ fontSize: 14, color: "var(--success)", flexShrink: 0 }}>✓</span>}
+                        {isFailed && <span style={{ fontSize: 14, color: "var(--danger)", flexShrink: 0 }}>✕</span>}
+
+                        <span className={styles.processingLabel} style={{
+                            color: isFailed ? "var(--danger)" : isDone ? "var(--success)" : undefined,
+                        }}>
+                            {isDone
+                                ? `Upload complete — ${p.framesProcessed} of ${p.totalFrames} frames processed`
+                                : isFailed
+                                    ? `Upload failed${p.errorMessage ? `: ${p.errorMessage.slice(0, 80)}` : ""}`
+                                    : `Analysing frames — ${p.framesProcessed} of ${p.totalFrames} processed`}
+                        </span>
+
+                        {!isFailed && (
+                            <div className={styles.processingTrack}>
+                                <div
+                                    className={styles.processingFill}
+                                    style={{
+                                        width: `${isDone ? 100 : pct}%`,
+                                        background: isDone ? "var(--success)" : undefined,
+                                        transition: "width 0.4s ease",
+                                    }}
+                                />
+                            </div>
+                        )}
+                        {(isDone || isFailed) && (
+                            <button
+                                onClick={() => onDismissUpload(p.uploadId)}
+                                style={{
+                                    background: "none", border: "none", cursor: "pointer",
+                                    color: "var(--text3)", fontSize: 18, lineHeight: 1,
+                                    padding: "0 4px", flexShrink: 0,
+                                }}
+                            >×</button>
+                        )}
+                    </div>
+                );
+            })()}
 
             {/* Stats strip */}
             <div className={styles.statsStrip}>
@@ -1337,6 +1368,8 @@ function AnnotateScreen({
     initialDetectionId,
     onEntered,
     initialFrameId,
+    onRetrain,
+    hasCheckpoint,
 }: {
     project: { name: string };
     frames: FrameRow[];
@@ -1344,6 +1377,8 @@ function AnnotateScreen({
     initialFrameId: string | null;
     initialDetectionId: string | null;
     onEntered: () => void;
+    onRetrain: () => void;
+    hasCheckpoint: boolean;
 }) {
     const readyFrames = frames.filter(f => f.status !== "queued");
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
@@ -1437,6 +1472,8 @@ function AnnotateScreen({
             onEntered={onEntered}
             onBack={() => setViewMode("grid")}
             onFrameChange={i => setSelectedFrameId(readyFrames[i]?.id ?? null)}
+            onRetrain={onRetrain}
+            hasCheckpoint={hasCheckpoint}
         />
     );
 }
@@ -1450,6 +1487,9 @@ function AnnotateReview({
     onFrameChange,
     initialDetectionId,
     onEntered,
+    onRetrain,
+    hasCheckpoint,
+
 }: {
     project: { name: string };
     frames: FrameRow[];
@@ -1459,6 +1499,8 @@ function AnnotateReview({
     onFrameChange: (i: number) => void;
     initialDetectionId: string | null;
     onEntered: () => void;
+    onRetrain: () => void;
+    hasCheckpoint: boolean;
 }) {
     // refs
     const containerRef = useRef<HTMLDivElement>(null);
@@ -1504,6 +1546,9 @@ function AnnotateReview({
     const [zoomLevel, setZoomLevel] = useState(1);
     const zoomLevelRef = useRef(1);
     const [editedIds, setEditedIds] = useState<Set<string>>(new Set());
+    const [approvedFrameIds, setApprovedFrameIds] = useState<Set<string>>(new Set());
+    const [showApproveConfirm, setShowApproveConfirm] = useState(false);
+    const frameAlreadyApproved = approvedFrameIds.has(frame?.id ?? "") || frame?.is_approved === true;
 
     // mode
     const [mode, setMode] = useState<"select" | "draw">("select");
@@ -2056,20 +2101,39 @@ function AnnotateReview({
         }
     }
 
-    async function handleBulkMarkCorrect() {
+    async function handleApproveAnnotation() {
+        if (!frame) return;
+        setSavingReview(true);
+        setSaveError(null);
+        try {
+            // optimistic update
+            setDetections(prev => prev.map(d =>
+                d.status === "needs_review" ? { ...d, status: "reviewed" } : d
+            ));
+            setPendingLabels(new Map());
+            const res = await api.approveFrame(projectId, frame.id);
+            recordSave();
+            if (res.retrained) onRetrain();
+            setApprovedFrameIds(prev => new Set([...prev, frame.id]));
+        } catch (err: any) {
+            setSaveError(err.message ?? "Failed to save");
+        } finally {
+            setSavingReview(false);
+        }
+    }
+
+    async function handleMarkAllCorrect() {
         const unreviewedDets = detectionGroups
             .filter(({ primary: d }) => d.status === "needs_review")
             .map(({ primary: d }) => ({ id: d.id, label: d.display_label ?? "" }));
 
+        if (unreviewedDets.length === 0) return;
         setSavingReview(true);
         setSaveError(null);
         try {
-            // Mark remaining unreviewed as correct — optimistic state update first
             setDetections(prev => prev.map(d =>
                 unreviewedDets.some(u => u.id === d.id) ? { ...d, status: "reviewed" } : d
             ));
-            setPendingLabels(new Map());
-            // Persist each newly-reviewed detection
             await Promise.all(unreviewedDets.map(({ id, label }) =>
                 api.reviewDetectionLabel(id, label)
             ));
@@ -2327,6 +2391,28 @@ function AnnotateReview({
                                 {reviewedCount}/{totalCount}
                             </span>
                         </div>
+                        {hasCheckpoint && reviewedCount < totalCount && totalCount > 0 && (
+                            <button
+                                onClick={handleMarkAllCorrect}
+                                style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: "var(--text3)",
+                                    background: "none",
+                                    border: "1.5px solid var(--border)",
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    padding: "2px 8px",
+                                    fontFamily: "inherit",
+                                    textTransform: "none",
+                                    letterSpacing: 0,
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.color = "var(--text1)")}
+                                onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}
+                            >
+                                Mark all ✓
+                            </button>
+                        )}
                     </div>
 
                     <div
@@ -2582,7 +2668,7 @@ function AnnotateReview({
                                 const bboxColor = labelColorMap.get(b.display_label) ?? "#34d399";
                                 const isEditingBbox = editingDetectionId === b.id;
                                 const currentBboxLabel = pendingLabels.get(b.id) ?? b.display_label;
-                
+
                                 return (
                                     <div
                                         key={b.id}
@@ -2775,11 +2861,11 @@ function AnnotateReview({
                                 })()}
                             </div>
                         )}
-                        {reviewedCount === totalCount && totalCount > 0 ? null : (
-                            <>
+                        {!hasCheckpoint ? (
+                            boundingBoxes.length > 0 && !frameAlreadyApproved ? (
                                 <button
-                                    onClick={handleBulkMarkCorrect}
-                                    disabled={savingReview || totalCount === 0}
+                                    onClick={() => setShowApproveConfirm(true)}
+                                    disabled={savingReview}
                                     className={styles.btnPrimary}
                                     style={{
                                         width: "100%",
@@ -2789,12 +2875,35 @@ function AnnotateReview({
                                         fontSize: 13,
                                     }}
                                 >
-                                    {savingReview
-                                        ? "Saving…"
-                                        : reviewedCount === 0
-                                            ? "Mark all as correct"
-                                            : "Mark remaining as correct"}
+                                    {savingReview ? "Saving…" : "Approve Annotation"}
                                 </button>
+                            ) : frameAlreadyApproved ? (
+                                <div style={{ fontSize: 12, color: "var(--success)", textAlign: "center", padding: "8px 0", fontWeight: 600 }}>
+                                    ✓ Frame reviewed and approved
+                                </div>
+                            ) : null
+                        ) : (
+                            <>
+                                {!frameAlreadyApproved ? (
+                                    <button
+                                        onClick={() => setShowApproveConfirm(true)}
+                                        disabled={savingReview || totalCount === 0}
+                                        className={styles.btnPrimary}
+                                        style={{
+                                            width: "100%",
+                                            justifyContent: "center",
+                                            background: "#5DCAA5",
+                                            padding: "10px",
+                                            fontSize: 13,
+                                        }}
+                                    >
+                                        {savingReview ? "Saving…" : "Approve annotation"}
+                                    </button>
+                                ) : (
+                                    <div style={{ fontSize: 12, color: "var(--success)", textAlign: "center", padding: "8px 0", fontWeight: 600 }}>
+                                        ✓ Frame approved
+                                    </div>
+                                )}
                                 <button
                                     onClick={() => {
                                         setPendingLabels(new Map());
@@ -2816,6 +2925,75 @@ function AnnotateReview({
                 </div>
 
             </div>
+            {showApproveConfirm && (
+                <div
+                    style={{
+                        position: "fixed",
+                        inset: 0,
+                        zIndex: 50,
+                        background: "rgba(20,30,60,0.5)",
+                        backdropFilter: "blur(4px)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                    }}
+                    onClick={e => { if (e.target === e.currentTarget) setShowApproveConfirm(false); }}
+                >
+                    <div style={{
+                        background: "var(--surface)",
+                        borderRadius: 18,
+                        padding: 28,
+                        width: 420,
+                        maxWidth: "calc(100vw - 32px)",
+                        border: "1px solid var(--border)",
+                        boxShadow: "0 20px 60px rgba(20,30,60,0.2)",
+                    }}>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text1)", marginBottom: 10 }}>
+                            Approve annotation?
+                        </div>
+                        <div style={{ fontSize: 13, color: "var(--text3)", lineHeight: 1.6, marginBottom: 22 }}>
+                            Make sure all annotations are correct before submitting. Additional annotations after submission won't be used for model retraining. To include new annotations, upload the image again.
+                        </div>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button
+                                onClick={() => setShowApproveConfirm(false)}
+                                style={{
+                                    padding: "9px 18px",
+                                    borderRadius: 8,
+                                    border: "1.5px solid var(--border)",
+                                    background: "var(--surface)",
+                                    fontSize: 13,
+                                    cursor: "pointer",
+                                    fontFamily: "inherit",
+                                    color: "var(--text2)",
+                                    fontWeight: 500,
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowApproveConfirm(false);
+                                    handleApproveAnnotation();
+                                }}
+                                style={{
+                                    padding: "9px 22px",
+                                    borderRadius: 8,
+                                    border: "none",
+                                    background: "#5DCAA5",
+                                    color: "#fff",
+                                    fontSize: 13,
+                                    cursor: "pointer",
+                                    fontFamily: "inherit",
+                                    fontWeight: 700,
+                                }}
+                            >
+                                Yes, submit
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

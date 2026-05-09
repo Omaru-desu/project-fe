@@ -127,6 +127,24 @@ export default function ProjectCard({ project, onEditAction, onDeleteAction }: P
                     {project.description || "No description"}
                 </div>
 
+                <div
+                    style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: project.model_type === "custom" ? "var(--teal, #2dd4bf)" : "var(--text3)",
+                        background: project.model_type === "custom" ? "rgba(45,212,191,0.08)" : "var(--surface2)",
+                        border: `1px solid ${project.model_type === "custom" ? "rgba(45,212,191,0.3)" : "var(--border)"}`,
+                        borderRadius: 99,
+                        padding: "2px 8px",
+                        marginTop: 4,
+                    }}
+                >
+                    {project.model_type === "custom" ? "Custom Model" : "Pretrained Model"}
+                </div>
+
                 {/* Progress */}
                 <div style={{ marginBottom: 12 }}>
                     <div className="flex justify-between" style={{ marginBottom: 4 }}>

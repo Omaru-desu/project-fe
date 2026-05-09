@@ -37,6 +37,7 @@ export async function createProject(data: CreateProjectInput): Promise<Project> 
             name: data.name,
             description: data.description ?? '',
             type: data.type,
+            model_type: data.model_type,
             frame_count: 0,
         }),
     });
@@ -84,9 +85,10 @@ export async function getProjectFrames(projectId: string): Promise<{
             taxon: string | null;
             display_label: string;
             score: number;
-            annotation_source: "machine" | "human"; 
+            annotation_source: "machine" | "human";
         }[];
         frame_url: string;
+        is_approved: boolean;
     }[];
 }> {
     const res = await fetch(`${API_URL}/api/projects/${projectId}/frames`, {
@@ -151,7 +153,7 @@ export interface BoundingBoxPayload {
     score?: number;
     notes?: string;
 }
- 
+
 export interface BoundingBox {
     id: string;
     frame_id: string;
@@ -164,7 +166,7 @@ export interface BoundingBox {
     annotation_source: "machine" | "human";
     created_at: string;
 }
- 
+
 export async function getBoundingBoxes(
     projectId: string,
     frameId: string
@@ -175,7 +177,7 @@ export async function getBoundingBoxes(
     );
     return handleResponse<BoundingBox[]>(res);
 }
- 
+
 export async function createBoundingBox(
     projectId: string,
     frameId: string,
@@ -191,7 +193,7 @@ export async function createBoundingBox(
     );
     return handleResponse<BoundingBox>(res);
 }
- 
+
 export async function updateBoundingBox(
     projectId: string,
     frameId: string,
@@ -208,7 +210,7 @@ export async function updateBoundingBox(
     );
     return handleResponse<BoundingBox>(res);
 }
- 
+
 export async function deleteBoundingBox(
     projectId: string,
     frameId: string,
@@ -254,4 +256,12 @@ export async function deleteDetection(detectionId: string): Promise<void> {
         headers: await authHeaders(),
     });
     return handleResponse<void>(res);
+}
+
+export async function approveFrame(projectId: string, frameId: string): Promise<{ retrained: boolean }> {
+    const res = await fetch(`${API_URL}/api/projects/${projectId}/frames/${frameId}/approve`, {
+        method: 'POST',
+        headers: await authHeaders(),
+    });
+    return handleResponse<{ retrained: boolean }>(res);
 }

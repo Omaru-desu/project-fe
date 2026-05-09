@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import {
     Project,
     ProjectType,
+    ModelType,
     CreateProjectInput,
     UpdateProjectInput,
 } from "../../types/project";
@@ -22,9 +23,26 @@ const TYPE_OPTIONS: {
     sub: string;
     dot: string;
 }[] = [
-    { value: "test", label: "Test", sub: "Explore & experiment", dot: "var(--warning)" },
-    { value: "active", label: "Active", sub: "Production annotation", dot: "var(--success)" },
-];
+        { value: "test", label: "Test", sub: "Explore & experiment", dot: "var(--warning)" },
+        { value: "active", label: "Active", sub: "Production annotation", dot: "var(--success)" },
+    ];
+
+const MODEL_OPTIONS: {
+    value: ModelType;
+    label: string;
+    sub: string;
+}[] = [
+        {
+            value: "pretrained",
+            label: "Pretrained Model",
+            sub: "Starts with a marine-trained checkpoint. Retrains every 10 approved frames.",
+        },
+        {
+            value: "custom",
+            label: "Custom Model",
+            sub: "Starts from scratch. Annotate manually until the model learns from your data.",
+        },
+    ];
 
 export default function ProjectModal({
     mode,
@@ -35,6 +53,7 @@ export default function ProjectModal({
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
     const [type, setType] = useState<ProjectType>("test");
+    const [modelType, setModelType] = useState<ModelType>("pretrained");
     const [nameError, setNameError] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -43,6 +62,7 @@ export default function ProjectModal({
             setName(project.name);
             setDescription(project.description);
             setType(project.type);
+            setModelType(project.model_type ?? "pretrained");
         }
     }, [mode, project]);
 
@@ -64,11 +84,9 @@ export default function ProjectModal({
         if (!validate()) return;
         setIsSubmitting(true);
         try {
-            const payload = {
-                name: name.trim(),
-                description: description.trim(),
-                type,
-            };
+            const payload = mode === "create"
+                ? { name: name.trim(), description: description.trim(), type, model_type: modelType }
+                : { name: name.trim(), description: description.trim() };
             await onSubmitAction(payload);
             onCloseAction();
         } finally {
@@ -310,6 +328,61 @@ export default function ProjectModal({
                             </>
                         )}
                     </div>
+
+                    {mode === "create" && (
+                        <div className="flex flex-col" style={{ gap: 5 }}>
+                            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)" }}>
+                                Detection model
+                            </label>
+                            <div className="flex flex-col" style={{ gap: 8 }}>
+                                {MODEL_OPTIONS.map(opt => {
+                                    const active = modelType === opt.value;
+                                    return (
+                                        <div
+                                            key={opt.value}
+                                            onClick={() => setModelType(opt.value)}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 12,
+                                                padding: "12px 14px",
+                                                borderRadius: 9,
+                                                border: `2px solid ${active ? "var(--primary)" : "var(--border)"}`,
+                                                background: active ? "var(--primary-pale)" : "var(--surface2)",
+                                                cursor: "pointer",
+                                                transition: "all 0.15s",
+                                            }}
+                                        >
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: 13, fontWeight: 700, color: active ? "var(--primary-dark)" : "var(--text1)", marginBottom: 2 }}>
+                                                    {opt.label}
+                                                </div>
+                                                <div style={{ fontSize: 11, color: "var(--text3)" }}>
+                                                    {opt.sub}
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                width: 18, height: 18, borderRadius: "50%",
+                                                border: `2px solid ${active ? "var(--primary)" : "var(--border)"}`,
+                                                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                                            }}>
+                                                {active && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--primary)" }} />}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {modelType === "custom" && (
+                                <div style={{
+                                    marginTop: 4, padding: "9px 12px", borderRadius: 8,
+                                    background: "rgba(45,212,191,0.08)", border: "1.5px solid rgba(45,212,191,0.3)",
+                                    fontSize: 12, color: "var(--text2)", lineHeight: 1.6,
+                                }}>
+                                    Starts from a base checkpoint. Annotate manually until the model learns from your data, retrains every <strong>10 approved frames</strong>, specific to this project.
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div
                         className="flex justify-end"
