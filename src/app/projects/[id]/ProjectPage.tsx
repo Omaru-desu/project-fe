@@ -2952,7 +2952,7 @@ function AnnotateReview({
                             Approve annotation?
                         </div>
                         <div style={{ fontSize: 13, color: "var(--text3)", lineHeight: 1.6, marginBottom: 22 }}>
-                            Make sure all annotations are correct before submitting. Additional annotations after submission won't be used for model retraining. To include new annotations, upload the image again.
+                            Make sure all annotations are correct before submitting. Additional annotations after submission won&apos;t be used for model retraining. To include new annotations, upload the image again.
                         </div>
                         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                             <button
