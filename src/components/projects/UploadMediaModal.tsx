@@ -14,6 +14,7 @@ interface Props {
 
 export default function UploadMediaModal({ projectId, onClose, onUploadComplete }: Props) {
     const [mediaType, setMediaType] = useState<MediaType>("image");
+    const [name, setName] = useState("");
     const [files, setFiles] = useState<UploadFile[]>([]);
     const [uploading, setUploading] = useState(false);
     const [dragOver, setDragOver] = useState(false);
@@ -101,10 +102,11 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
             files.forEach((file) => {
                 formData.append("files", file.file);
             });
+            formData.append("name", name.trim() || "Untitled dataset");
 
             const response = await api.uploadProject(projectId, formData);
 
-            setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));   
+            setFiles(prev => prev.map(f => ({ ...f, status: "done" as const, progress: 100 })));
             // api.segmentUpload(projectId, response.upload_id);
             onUploadComplete(response.upload_id, response.frame_count);
 
@@ -121,7 +123,7 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
     // All done when every file is either done or failed (can't upload if no files or if still uploading)
     const allDone = files.length > 0 && files.every(f => f.status === "done" || f.status === "failed");
     // Can upload when there's at least one file, not currently uploading
-    const canUpload = files.length > 0 && !uploading && !allDone;
+    const canUpload = files.length > 0 && !uploading && !allDone && name.trim().length > 0;
 
     function formatSize(b: number) {
         return b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${(b / 1024).toFixed(0)} KB`;
@@ -142,7 +144,7 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                     {/* STEP 1 */}
                     <div className={styles.sectionHead}>
                         <div className={styles.sectionNum}>1</div>
-                        <span className={styles.sectionTitle}>Select media type</span>
+                        <span className={styles.sectionTitle}>Name & media type</span>
                         <button className={styles.closeBtn} onClick={onClose} style={{ marginLeft: "auto" }}>
                             <X size={16} />
                         </button>
@@ -199,6 +201,27 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                             </div>
                         </div>
                     </div>
+                    <div className={styles.mediaTypeBody}>
+                        <input
+                            type="text"
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            placeholder="Name this dataset… e.g. Coral Sea 01"
+                            style={{
+                                width: "100%",
+                                padding: "10px 14px",
+                                borderRadius: 8,
+                                border: "1.5px solid var(--border)",
+                                background: "var(--surface2)",
+                                fontSize: 13,
+                                color: "var(--text1)",
+                                fontFamily: "inherit",
+                                outline: "none",
+                            }}
+                            onFocus={e => (e.currentTarget.style.borderColor = "var(--primary)")}
+                            onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
+                        />
+                    </div>
 
                     {/* STEP 2 */}
                     <div className={styles.sectionHead}>
@@ -252,9 +275,8 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                                     return (
                                         <div key={f.id} className={itemClass}>
                                             <div
-                                                className={`${styles.fileIconBox} ${
-                                                    isRosbag ? styles.fileIconRosbag : isVid ? styles.fileIconVid : styles.fileIconImg
-                                                }`}
+                                                className={`${styles.fileIconBox} ${isRosbag ? styles.fileIconRosbag : isVid ? styles.fileIconVid : styles.fileIconImg
+                                                    }`}
                                             >
                                                 {isRosbag ? (
                                                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
