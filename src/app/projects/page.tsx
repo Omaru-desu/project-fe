@@ -36,8 +36,10 @@ export default function ProjectsPage() {
         return [...list].sort((a, b) => {
             if (sort === "alpha_asc") return a.name.localeCompare(b.name);
             if (sort === "alpha_desc") return b.name.localeCompare(a.name);
-            if (sort === "date_asc") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            const dateA = new Date(a.updated_at ?? a.created_at).getTime();
+            const dateB = new Date(b.updated_at ?? b.created_at).getTime();
+            if (sort === "date_asc") return dateA - dateB;
+            return dateB - dateA;
         });
     }, [projects, filter, sort]);
 
