@@ -3,6 +3,22 @@ import { createBrowserSupabaseClient } from './supabase/client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+export interface ClassMetric {
+    label: string;
+    precision: number;
+    recall: number;
+    f1: number;
+    samples: number;
+}
+ 
+export interface ModelPerformanceResponse {
+    map_at_05: number;
+    precision: number;
+    recall: number;
+    uncertain_count: number;
+    per_class: ClassMetric[];
+}
+
 async function authHeaders(isFormData = false): Promise<HeadersInit> {
     const supabase = createBrowserSupabaseClient();
     const { data: { session } } = await supabase.auth.getSession();
@@ -37,6 +53,7 @@ export async function createProject(data: CreateProjectInput): Promise<Project> 
             name: data.name,
             description: data.description ?? '',
             type: data.type,
+            model_type: data.model_type,
             frame_count: 0,
         }),
     });
@@ -84,9 +101,10 @@ export async function getProjectFrames(projectId: string): Promise<{
             taxon: string | null;
             display_label: string;
             score: number;
-            annotation_source: "machine" | "human"; 
+            annotation_source: "machine" | "human";
         }[];
         frame_url: string;
+        is_approved: boolean;
     }[];
 }> {
     const res = await fetch(`${API_URL}/api/projects/${projectId}/frames`, {
@@ -151,7 +169,7 @@ export interface BoundingBoxPayload {
     score?: number;
     notes?: string;
 }
- 
+
 export interface BoundingBox {
     id: string;
     frame_id: string;
@@ -164,7 +182,7 @@ export interface BoundingBox {
     annotation_source: "machine" | "human";
     created_at: string;
 }
- 
+
 export async function getBoundingBoxes(
     projectId: string,
     frameId: string
@@ -175,7 +193,7 @@ export async function getBoundingBoxes(
     );
     return handleResponse<BoundingBox[]>(res);
 }
- 
+
 export async function createBoundingBox(
     projectId: string,
     frameId: string,
@@ -191,7 +209,7 @@ export async function createBoundingBox(
     );
     return handleResponse<BoundingBox>(res);
 }
- 
+
 export async function updateBoundingBox(
     projectId: string,
     frameId: string,
@@ -208,7 +226,7 @@ export async function updateBoundingBox(
     );
     return handleResponse<BoundingBox>(res);
 }
- 
+
 export async function deleteBoundingBox(
     projectId: string,
     frameId: string,
@@ -256,6 +274,7 @@ export async function deleteDetection(detectionId: string): Promise<void> {
     return handleResponse<void>(res);
 }
 
+
 export async function reevaluateFrame(
     projectId: string,
     frameId: string,
@@ -282,4 +301,70 @@ export async function reevaluateFrame(
     );
 
     return handleResponse(res);
+}
+export async function getModelPerformance(projectId: string): Promise<ModelPerformanceResponse> {
+    const res = await fetch(`${API_URL}/api/model-performance?project_id=${projectId}`, {
+        headers: await authHeaders(),
+    });
+    return handleResponse<ModelPerformanceResponse>(res);
+}
+
+export async function approveFrame(projectId: string, frameId: string): Promise<{ retrained: boolean }> {
+    const res = await fetch(`${API_URL}/api/projects/${projectId}/frames/${frameId}/approve`, {
+        method: 'POST',
+        headers: await authHeaders(),
+    });
+    return handleResponse<{ retrained: boolean }>(res);
+}
+
+export interface Dataset {
+    id: string;
+    name: string | null;
+    status: string;
+    frame_count: number;
+    frames_processed: number;
+    reviewed_frames: number;
+    created_at: string;
+    upload_type: string;
+}
+
+export interface DatasetsResponse {
+    datasets: Dataset[];
+    total_frames: number;
+    reviewed_frames: number;
+    active_datasets: number;
+}
+
+export async function getDatasets(projectId: string): Promise<DatasetsResponse> {
+    const res = await fetch(`${API_URL}/api/projects/${projectId}/datasets`, {
+        headers: await authHeaders(),
+    });
+    return handleResponse<DatasetsResponse>(res);
+}
+
+export interface UploadFrame {
+    id: string;
+    source_filename: string;
+    is_approved: boolean;
+}
+
+export interface UploadFramesResponse {
+    frames: UploadFrame[];
+    total: number;
+    page: number;
+    total_pages: number;
+}
+
+export async function getUploadFrames(
+    projectId: string,
+    uploadId: string,
+    page = 1,
+    limit = 50,
+): Promise<UploadFramesResponse> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    const res = await fetch(`${API_URL}/api/projects/${projectId}/datasets/${uploadId}/frames?${params}`, {
+        headers: await authHeaders(),
+    });
+    return handleResponse<UploadFramesResponse>(res);
+
 }
