@@ -132,12 +132,17 @@ export async function reviewDetectionLabel(id: string, newLabel: string): Promis
     return handleResponse<void>(res);
 }
 
-export async function getFrameDetections(projectId: string, frameId: string) {
-    const res = await fetch(`${API_URL}/api/projects/${projectId}/frames/${frameId}/detections`, {
-        headers: await authHeaders()
-    });
-    if (!res.ok) throw new Error("Failed to fetch detections");
-    return res.json();
+export async function getFrameDetections(projectId: string, frameId: string, signal?: AbortSignal) {
+    try {
+        const res = await fetch(`${API_URL}/api/projects/${projectId}/frames/${frameId}/detections`, {
+            headers: await authHeaders(),
+            signal
+        });
+        if (!res.ok) return { detections: [] };
+        return res.json();
+    } catch {
+        return { detections: [] };
+    }
 }
 
 export interface BoundingBoxPayload {
@@ -216,5 +221,37 @@ export async function deleteBoundingBox(
             headers: await authHeaders(),
         }
     );
+    return handleResponse<void>(res);
+}
+
+export async function textSearchDetections(
+    projectId: string,
+    query: string,
+    limit = 20,
+): Promise<{ query: string; results: import('../types/project').SemanticResult[] }> {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    const res = await fetch(`${API_URL}/api/projects/${projectId}/search?${params}`, {
+        headers: await authHeaders(),
+    });
+    return handleResponse(res);
+}
+
+export async function getSimilarDetections(
+    projectId: string,
+    detectionId: string,
+    limit = 20,
+): Promise<{ detection_id: string; results: import('../types/project').SemanticResult[] }> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    const res = await fetch(`${API_URL}/api/projects/${projectId}/detections/${detectionId}/similar?${params}`, {
+        headers: await authHeaders(),
+    });
+    return handleResponse(res);
+}
+
+export async function deleteDetection(detectionId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/api/detections/${detectionId}`, {
+        method: 'DELETE',
+        headers: await authHeaders(),
+    });
     return handleResponse<void>(res);
 }

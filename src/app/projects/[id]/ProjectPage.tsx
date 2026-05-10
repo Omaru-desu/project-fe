@@ -1,152 +1,261 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import {
+    useState,
+    useEffect,
+    useRef,
+    useMemo,
+    useCallback,
+    Fragment,
+} from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
-import { Detection } from "../../../types/project";
+import { createBrowserSupabaseClient } from "../../../lib/supabase/client";
+import {
+    Image as ImageIcon,
+    Tag,
+    Cpu,
+    Database,
+    ChevronLeft,
+    Menu,
+    Bell,
+    Search,
+    X,
+    LogOut,
+    Plus,
+    Activity,
+    CheckCircle,
+    Eye,
+    Zap,
+    Download,
+    SkipBack,
+    ChevronRight,
+    Fish,
+    LayoutGrid,
+    type LucideIcon,
+} from "lucide-react";
+import { Detection, SemanticResult } from "../../../types/project";
 import * as api from "../../../lib/api";
 import type { BoundingBox } from "../../../lib/api";
+import { logout } from "../../login/actions";
 import styles from "./ProjectPage.module.css";
 import UploadMediaModal from "../../../components/projects/UploadMediaModal";
 import ReviewModal from "../../../components/projects/ReviewModal";
-const frameCache = new Map<string, string>();
+
 interface Props {
     projectId: string;
 }
 
-type Filter = "all" | "needs_review" | "reviewed";
-type Sort = "conf-asc" | "conf-desc" | "frame";
+type Screen = "gallery" | "annotate" | "models" | "datasets";
+type StatusFilter = "all" | "reviewed" | "needs_review";
 
 interface ProcessingStatus {
     uploadId: string;
     totalFrames: number;
     framesProcessed: number;
     status: string;
+    errorMessage?: string;
+}
+
+interface FrameRow {
+    id: string;
+    upload_id: string;
+    source_filename: string;
+    frame_gcs_uri: string;
+    status: string;
+    detections: {
+        id: string;
+        bbox: number[];
+        label_id: string;
+        status: string;
+        taxon: string | null;
+        display_label: string;
+        score: number;
+        annotation_source: "machine" | "human";
+    }[];
+    frame_url: string;
+}
+
+
+
+function StatusBadge({
+    label,
+    color,
+    bg,
+}: {
+    label: string;
+    color: string;
+    bg: string;
+}) {
+    return (
+        <span
+            className={styles.statusPill}
+            style={{ background: bg, color }}
+        >
+            <span
+                style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: color,
+                }}
+            />
+            {label}
+        </span>
+    );
+}
+
+function ProgressBar({
+    value,
+    color = "var(--primary)",
+    height = 5,
+}: {
+    value: number;
+    color?: string;
+    height?: number;
+}) {
+    return (
+        <div
+            className={styles.progressTrack}
+            style={{ height, background: "var(--border)" }}
+        >
+            <div
+                className={styles.progressFill}
+                style={{
+                    width: `${Math.min(100, Math.max(0, value))}%`,
+                    background: color,
+                }}
+            />
+        </div>
+    );
 }
 
 export default function ProjectPage({ projectId }: Props) {
     const router = useRouter();
-    const [filter, setFilter] = useState<Filter>("all");
-    const [sort, setSort] = useState<Sort>("conf-asc");
-    const [search, setSearch] = useState("");
-    const [selected, setSelected] = useState<string[]>([]);
-    const [showUpload, setShowUpload] = useState(false);
-    const [project, setProject] = useState<any>(null);
-    const [detections, setDetections] = useState<Detection[]>([]);
-    const [processing, setProcessing] = useState<ProcessingStatus | null>(null);
-    const pollingRef = useRef<NodeJS.Timeout | null>(null);
-    const [reviewDetection, setReviewDetection] = useState<Detection | null>(null);
 
-    type Tab = "gallery" | "annotate";
-    const [tab, setTab] = useState<Tab>("gallery");
-    const [activeFrameIndex, setActiveFrameIndex] = useState(0);
-    const [frames, setFrames] = useState<any[]>([]);
+    const [project, setProject] = useState<{
+        id: string;
+        name: string;
+        type?: "active" | "test";
+    } | null>(null);
+    const [frames, setFrames] = useState<FrameRow[]>([]);
+    const [detections, setDetections] = useState<Detection[]>([]);
+    const [processingList, setProcessingList] = useState<ProcessingStatus[]>([]);
+    const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+    const [displayName, setDisplayName] = useState("");
+    const [userOrg, setUserOrg] = useState("");
 
     useEffect(() => {
-        api.getProjects().then(projects => {
-            const found = projects.find(p => p.id === projectId);
-            if (!found) router.push("/projects");
-            else setProject(found);
-        }).catch(() => router.push("/projects"));
+        createBrowserSupabaseClient()
+            .auth.getUser()
+            .then(({ data }) => {
+                const meta = data.user?.user_metadata;
+                if (meta?.first_name) {
+                    setDisplayName(`${meta.first_name} ${meta.last_name ?? ""}`.trim());
+                } else {
+                    setDisplayName(data.user?.email ?? "");
+                }
+                setUserOrg(meta?.org ?? "");
+            });
+    }, []);
+
+    const [screen, setScreen] = useState<Screen>("gallery");
+    const [collapsed, setCollapsed] = useState(false);
+    const [showUpload, setShowUpload] = useState(false);
+    const [reviewDetection, setReviewDetection] = useState<Detection | null>(null);
+
+    // Gallery filters
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+    const [search, setSearch] = useState("");
+
+    // Semantic search
+    const [semanticMode, setSemanticMode] = useState(false);
+    const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
+    const [semanticLoading, setSemanticLoading] = useState(false);
+    const [semanticError, setSemanticError] = useState<string | null>(null);
+    const semanticSeqRef = useRef(0);
+    const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
+    const [annotateTarget, setAnnotateTarget] = useState<{
+        frameId: string;
+        detectionId: string;
+    } | null>(null);
+
+    // Project lookup
+    useEffect(() => {
+        api
+            .getProjects()
+            .then(projects => {
+                const found = projects.find(p => p.id === projectId);
+                if (!found) router.push("/projects");
+                else setProject(found);
+            })
+            .catch(() => router.push("/projects"));
     }, [projectId, router]);
 
-    const fetchDetections = async () => {
-        const data = await api.getProjectFrames(projectId);
-        setFrames(data.frames);
-        const allDetections: Detection[] = [];
-        for (const frame of data.frames) {
-            for (const det of frame.detections) {
-                allDetections.push({
+    function rebuildDetections(rows: FrameRow[]) {
+        const all: Detection[] = [];
+        for (const f of rows) {
+            for (const det of f.detections) {
+                all.push({
                     ...det,
-                    frame_id: frame.id,
-                    source_filename: frame.source_filename,
-                    frame_url: frame.frame_url,
+                    frame_id: f.id,
+                    source_filename: f.source_filename,
+                    frame_url: f.frame_url,
                     display_label: det.display_label ?? "",
                     score: det.score ?? 0,
-                    status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
+                    status:
+                        det.status === "reviewed"
+                            ? "reviewed"
+                            : ("needs_review" as "reviewed" | "needs_review"),
                     annotation_source: det.annotation_source ?? "machine",
                 });
             }
         }
-        setDetections(allDetections);
-    };
-
-    function startPolling(uploadId: string, totalFrames: number) {
-        setProcessing({ uploadId, totalFrames, framesProcessed: 0, status: "processing" });
-
-        pollingRef.current = setInterval(async () => {
-            try {
-                const data = await api.getProjectFrames(projectId);
-                setFrames(data.frames);
-                const total = data.frames.length;
-                const processed = data.frames.filter(f => f.status === "segmented").length;
-
-                setProcessing({
-                    uploadId,
-                    totalFrames: total,
-                    framesProcessed: processed,
-                    status: processed === total ? "ready" : "processing",
-                });
-
-                const allDetections: Detection[] = [];
-                for (const frame of data.frames) {
-                    for (const det of frame.detections) {
-                        allDetections.push({
-                            ...det,
-                            frame_id: frame.id,
-                            source_filename: frame.source_filename,
-                            frame_url: frame.frame_url,
-                            display_label: det.display_label ?? "",
-                            score: det.score ?? 0,
-                            status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
-                        });
-                    }
-                }
-                setDetections(allDetections);
-
-                if (processed === total) {
-                    clearInterval(pollingRef.current!);
-                    pollingRef.current = null;
-                    setProcessing(null);
-                }
-            } catch (err) {
-                console.error(err);
-                clearInterval(pollingRef.current!);
-                pollingRef.current = null;
-                setProcessing(null);
-            }
-        }, 3000);
+        setDetections(all);
     }
 
+    // Initial frames load
     useEffect(() => {
-        let cancelled = false;
-        api.getProjectFrames(projectId).then(data => {
+    let cancelled = false;
+    api.getProjectFrames(projectId)
+        .then(async data => {
             if (cancelled) return;
-            setFrames(data.frames);
-            const allDetections: Detection[] = [];
-            for (const frame of data.frames) {
-                for (const det of frame.detections) {
-                    allDetections.push({
-                        ...det,
-                        frame_id: frame.id,
-                        source_filename: frame.source_filename,
-                        frame_url: frame.frame_url,
-                        display_label: det.display_label ?? "",
-                        score: det.score ?? 0,
-                        status: (det.status === "reviewed" ? "reviewed" : "needs_review") as "reviewed" | "needs_review",
-                    });
-                }
-            }
-            setDetections(allDetections);
+            setFrames(data.frames as FrameRow[]);
+            rebuildDetections(data.frames as FrameRow[]);
 
-            const processingFrames = data.frames.filter(f =>
-                f.status === "queued" || f.status === "segmenting" || f.status === "processing_frames"
-            );
-            if (processingFrames.length > 0) {
-                const uploadId = processingFrames[0].upload_id;
-                startPolling(uploadId, data.frames.length);
-            }
-        }).catch(console.error);
+            const uploadIds = [...new Set(
+                data.frames.map((f: any) => f.upload_id).filter(Boolean)
+            )] as string[];
+
+            for (const uploadId of uploadIds) {
+    try {
+        const status = await api.getUploadStatus(uploadId);
+        if (cancelled) return;
+
+        const inProgress = status.status !== "failed" &&
+                           status.status !== "segmented" &&
+                           status.status !== "ready";
+
+        // only add to list if currently in progress
+        if (inProgress) {
+            setProcessingList(prev => {
+                if (prev.find(p => p.uploadId === uploadId)) return prev;
+                return [...prev, {
+                    uploadId,
+                    totalFrames: status.total_frames,
+                    framesProcessed: status.frames_processed,
+                    status: status.status,
+                    errorMessage: (status as any).error_message,
+                }];
+            });
+            startPolling(uploadId, status.total_frames);
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+        })
+        .catch(console.error);
 
         return () => {
             cancelled = true;
@@ -155,241 +264,208 @@ export default function ProjectPage({ projectId }: Props) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
 
+    function startPolling(uploadId: string, totalFrames: number) {
+    setProcessingList(prev => {
+        if (prev.find(p => p.uploadId === uploadId)) return prev;
+        return [...prev, { uploadId, totalFrames, framesProcessed: 0, status: "processing" }];
+    });
+
+    const intervalId = setInterval(async () => {
+        try {
+            const status = await api.getUploadStatus(uploadId);
+
+            setProcessingList(prev => prev.map(p =>
+                p.uploadId === uploadId
+                    ? {
+                        ...p,
+                        totalFrames: status.total_frames,
+                        framesProcessed: status.frames_processed,
+                        status: status.status,
+                        errorMessage: (status as any).error_message,
+                    }
+                    : p
+            ));
+
+            const data = await api.getProjectFrames(projectId);
+            setFrames(data.frames as FrameRow[]);
+            rebuildDetections(data.frames as FrameRow[]);
+
+            const done = status.status === "segmented" ||
+                         status.status === "failed" ||
+                         status.status === "ready";
+
+            if (done) clearInterval(intervalId);
+
+            } catch (err) {
+                console.error(err);
+                clearInterval(intervalId);
+            }
+        }, 3000);
+    }
+
     function handleUploadComplete(uploadId: string, totalFrames: number) {
         setShowUpload(false);
         startPolling(uploadId, totalFrames);
     }
 
-    if (!project) return (
-        <div className={styles.loading}>
-            <div className={styles.loadingSpinner} />
-        </div>
-    );
-
-    const visible = detections
-        .filter(d => {
-            const matchFilter = filter === "all" || d.status === filter;
-            const q = search.toLowerCase();
-            const matchSearch = !q ||
-                (d.display_label ?? "").toLowerCase().includes(q) ||
-                (d.taxon ?? "").toLowerCase().includes(q) ||
-                (d.source_filename ?? "").toLowerCase().includes(q);
-            return matchFilter && matchSearch;
-        })
-        .sort((a, b) => {
-            if (sort === "conf-asc") return a.score - b.score;
-            if (sort === "conf-desc") return b.score - a.score;
-            return a.source_filename.localeCompare(b.source_filename);
-        });
-
-    const reviewed = detections.filter(d => d.status === "reviewed").length;
-    const needsReview = detections.filter(d => d.status === "needs_review").length;
-    const pct = detections.length > 0 ? Math.round((reviewed / detections.length) * 100) : 0;
-
-    function toggleSelect(id: string) {
-        setSelected(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
-    }
-
-    function toggleSelectAll() {
-        setSelected(selected.length === visible.length ? [] : visible.map(d => d.id));
-    }
-
-    function markReviewed(id: string) {
-        setDetections(prev => prev.map(d => d.id === id ? { ...d, status: "reviewed" as const } : d));
-    }
-
     function handleModalReviewed(id: string, newLabel: string) {
-        setDetections(prev => prev.map(d =>
-            d.id === id ? { ...d, status: "reviewed" as const, display_label: newLabel } : d
-        ));
+        setDetections(prev =>
+            prev.map(d =>
+                d.id === id
+                    ? { ...d, status: "reviewed" as const, display_label: newLabel }
+                    : d
+            )
+        );
         setReviewDetection(null);
     }
 
-    async function markSelectedReviewed() {
-        const ids = [...selected];
-        setDetections(prev => prev.map(d => ids.includes(d.id) ? { ...d, status: "reviewed" as const } : d));
-        setSelected([]);
-        await Promise.allSettled(
-            ids.map(id => {
-                const det = detections.find(d => d.id === id);
-                return api.reviewDetectionLabel(id, det?.display_label ?? "");
-            })
+    async function runSemanticSearch(q: string) {
+        const trimmed = q.trim();
+        if (!trimmed) return;
+        const seq = ++semanticSeqRef.current;
+        setSemanticLoading(true);
+        setSemanticError(null);
+        try {
+            const res = await api.textSearchDetections(projectId, trimmed, 30);
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticResults(res.results);
+        } catch (err: unknown) {
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticError(err instanceof Error ? err.message : "Search failed");
+            setSemanticResults([]);
+        } finally {
+            if (seq === semanticSeqRef.current) setSemanticLoading(false);
+        }
+    }
+
+    async function runSimilarSearch(detectionId: string) {
+        const seq = ++semanticSeqRef.current;
+        setSemanticMode(true);
+        setSemanticLoading(true);
+        setSemanticError(null);
+        setSearch(`Similar to selected`);
+        try {
+            const res = await api.getSimilarDetections(projectId, detectionId, 30);
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticResults(res.results);
+        } catch (err: unknown) {
+            if (seq !== semanticSeqRef.current) return;
+            setSemanticError(err instanceof Error ? err.message : "Similar search failed");
+            setSemanticResults([]);
+        } finally {
+            if (seq === semanticSeqRef.current) setSemanticLoading(false);
+        }
+    }
+
+    function handleModalDeleted(id: string) {
+        setDetections(prev => prev.filter(d => d.id !== id));
+        setReviewDetection(null);
+    }
+
+    // Stats
+    const reviewed = detections.filter(d => d.status === "reviewed").length;
+    const needsReview = detections.filter(d => d.status === "needs_review").length;
+    const total = detections.length;
+    const pct = total > 0 ? Math.round((reviewed / total) * 100) : 0;
+
+    // Frame stats (status per-frame derived from detections)
+    const frameStatus: Record<string, "reviewed" | "needs_review" | "no_detections"> = {};
+    for (const f of frames) {
+        const dets = detections.filter(d => d.frame_id === f.id);
+        if (dets.length === 0) frameStatus[f.id] = "no_detections";
+        else if (dets.every(d => d.status === "reviewed"))
+            frameStatus[f.id] = "reviewed";
+        else frameStatus[f.id] = "needs_review";
+    }
+
+    if (!project) {
+        return (
+            <div className={styles.loading}>
+                <div className={styles.loadingSpinner} />
+            </div>
         );
     }
 
+    const selectedDetection = detections.find(d => d.id === selectedDetectionId) ?? null;
+    const selectedFrame = selectedDetection
+        ? frames.find(f => f.id === selectedDetection.frame_id) ?? null
+        : null;
+
+    const selectedFrameDetections = selectedFrame
+        ? detections.filter(d => d.frame_id === selectedFrame.id)
+        : [];
+
     return (
-        <div className={styles.page}>
-            {/* TOPBAR */}
-            <nav className={styles.topbar}>
-                <div className={styles.topbarLeft}>
-                    <button className={styles.backBtn} onClick={() => router.push("/projects")}>
-                        <ArrowLeft size={14} />
-                        Projects
-                    </button>
-                    <div className={styles.dividerV} />
-                    <div className={styles.logoMark}>🌊</div>
-                    <div>
-                        <div className={styles.projectTitle}>{project.name}</div>
-                    </div>
-                </div>
-                <div className={styles.topbarRight}>
-                    <button className={styles.btnUpload} onClick={() => setShowUpload(true)}>
-                        Upload Media
-                    </button>
-                </div>
-            </nav>
+        <div className={styles.shell}>
+            {/* SIDEBAR */}
+            <Sidebar
+                screen={screen}
+                setScreen={setScreen}
+                collapsed={collapsed}
+                setCollapsed={setCollapsed}
+                project={project}
+                pendingCount={needsReview}
+                onBack={() => router.push("/projects")}
+                displayName={displayName}
+                userOrg={userOrg}
+            />
 
-            {/* PROCESSING BAR */}
-            {processing && (
-                <div className={styles.processingBar}>
-                    <div className={styles.processingLeft}>
-                        <div className={styles.processingSpinner} />
-                        <span className={styles.processingLabel}>
-                            Analysing frames — {processing.framesProcessed} of {processing.totalFrames} processed
-                        </span>
-                    </div>
-                    <div className={styles.processingTrack}>
-                        <div
-                            className={styles.processingFill}
-                            style={{ width: `${processing.totalFrames > 0 ? (processing.framesProcessed / processing.totalFrames) * 100 : 0}%` }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* STATS BAR */}
-            <div className={styles.statsBar}>
-                <div className={styles.statItem}>
-                    <div className={`${styles.statDot} ${styles.statDotTotal}`} />
-                    <span className={styles.statLbl}>Total</span>
-                    <span className={styles.statVal}>{detections.length}</span>
-                </div>
-                <div className={styles.statDiv} />
-                <div className={styles.statItem}>
-                    <div className={`${styles.statDot} ${styles.statDotReviewed}`} />
-                    <span className={styles.statLbl}>Reviewed</span>
-                    <span className={styles.statVal}>{reviewed}</span>
-                </div>
-                <div className={styles.statDiv} />
-                <div className={styles.statItem}>
-                    <div className={`${styles.statDot} ${styles.statDotNeeds}`} />
-                    <span className={styles.statLbl}>Needs review</span>
-                    <span className={styles.statVal}>{needsReview}</span>
-                </div>
-                <div className={styles.statDiv} />
-                <div className={styles.statItem}>
-                    <span className={styles.statLbl}>Species</span>
-                    <span className={styles.statVal}>{new Set(detections.map(d => d.display_label)).size}</span>
-                </div>
-                <div className={styles.progressWrap}>
-                    <div className={styles.progressTrack}>
-                        <div className={styles.progressFill} style={{ width: `${pct}%` }} />
-                    </div>
-                    <span className={styles.progressPct}>{pct}% complete</span>
-                </div>
+            {/* MAIN */}
+            <div className={styles.main}>
+                {screen === "gallery" && (
+                    <GalleryScreen
+                        project={project}
+                        frames={frames}
+                        frameStatus={frameStatus}
+                        detectionsByFrame={detections}
+                        statusFilter={statusFilter}
+                        setStatusFilter={setStatusFilter}
+                        search={search}
+                        setSearch={setSearch}
+                        selectedDetectionId={selectedDetectionId}
+                        setSelectedDetectionId={setSelectedDetectionId}
+                        selectedFrame={selectedFrame}
+                        selectedFrameDetections={selectedFrameDetections}
+                        reviewedCount={reviewed}
+                        needsReviewCount={needsReview}
+                        totalDetections={total}
+                        pct={pct}
+                        processingList={processingList}
+                        onDismissUpload={(id) => setProcessingList(prev => prev.filter(p => p.uploadId !== id))}
+                        onUpload={() => setShowUpload(true)}
+                        onStartAnnotating={() => setScreen("annotate")}
+                        onOpenInAnnotator={(frameId, detectionId) => {
+                            setAnnotateTarget({ frameId, detectionId });
+                            setScreen("annotate");
+                        }}
+                        onOpenReview={(d) => setReviewDetection(d)}
+                        semanticMode={semanticMode}
+                        setSemanticMode={(v) => {
+                            setSemanticMode(v);
+                            setSemanticResults([]);
+                            setSemanticError(null);
+                        }}
+                        semanticResults={semanticResults}
+                        semanticLoading={semanticLoading}
+                        semanticError={semanticError}
+                        onSemanticSearch={runSemanticSearch}
+                        onSemanticClear={() => { setSemanticResults([]); setSearch(""); setSemanticMode(false); }}
+                        onFindSimilar={runSimilarSearch}
+                    />
+                )}
+                {screen === "annotate" && (
+                    <AnnotateScreen
+                        project={project}
+                        frames={frames}
+                        projectId={projectId}
+                        initialFrameId={annotateTarget?.frameId ?? null}
+                        initialDetectionId={annotateTarget?.detectionId ?? null}
+                        onEntered={() => setAnnotateTarget(null)}
+                    />
+                )}
+                {screen === "models" && <ModelsScreen />}
+                {screen === "datasets" && <DatasetsScreen frames={frames} />}
             </div>
-
-            <div className={styles.tabs}>
-                <button
-                    className={`${styles.tabBtn} ${tab === "gallery" ? styles.tabActive : ""}`}
-                    onClick={() => setTab("gallery")}
-                >
-                    Gallery
-                </button>
-                <button
-                    className={`${styles.tabBtn} ${tab === "annotate" ? styles.tabActive : ""}`}
-                    onClick={() => setTab("annotate")}
-                >
-                    Annotate
-                </button>
-            </div>
-
-            {/* BULK BAR */}
-            {selected.length > 0 && (
-                <div className={styles.bulkBar}>
-                    <span>{selected.length} item{selected.length > 1 ? "s" : ""} selected</span>
-                    <div>
-                        <button className={styles.bulkBtn} onClick={markSelectedReviewed}>Mark as reviewed</button>
-                        <button className={`${styles.bulkBtn} ${styles.bulkBtnDanger}`} onClick={() => setSelected([])}>Clear selection</button>
-                    </div>
-                </div>
-            )}
-
-            {/* TOOLBAR */}
-            <div className={styles.toolbar}>
-                <div className={styles.toolbarLeft}>
-                    <div className={styles.searchBox}>
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                            <circle cx="7" cy="7" r="4" stroke="var(--slate)" strokeWidth="1.5" />
-                            <path d="M11 11l2.5 2.5" stroke="var(--slate)" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                        <input
-                            type="text"
-                            placeholder="Search species..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            className={styles.searchInput}
-                        />
-                    </div>
-                    {(["all", "needs_review", "reviewed"] as Filter[]).map(f => (
-                        <button
-                            key={f}
-                            className={`${styles.filterBtn} ${filter === f ? styles.filterBtnActive : ""}`}
-                            onClick={() => setFilter(f)}
-                        >
-                            {f === "all" ? "All" : f === "needs_review" ? "Needs review" : "Reviewed"}
-                        </button>
-                    ))}
-                </div>
-                <div className={styles.toolbarRight}>
-                    <label className={styles.selectAllLabel}>
-                        <input
-                            type="checkbox"
-                            className={styles.selectAllCb}
-                            checked={visible.length > 0 && selected.length === visible.length}
-                            onChange={toggleSelectAll}
-                        />
-                        Select all
-                    </label>
-                    <select
-                        className={styles.sortSelect}
-                        value={sort}
-                        onChange={e => setSort(e.target.value as Sort)}
-                    >
-                        <option value="conf-asc">Confidence: low → high</option>
-                        <option value="conf-desc">Confidence: high → low</option>
-                    </select>
-                </div>
-            </div>
-
-            {tab === "gallery" && (
-                <div className={styles.grid}>
-                    {visible.length === 0 ? (
-                        <div className={styles.emptyState}>
-                            {processing ? "Waiting for detections…" : "No detections match your filter."}
-                        </div>
-                    ) : (
-                        visible.map(d => (
-                            <DetectionCard
-                                key={d.id}
-                                detection={d}
-                                selected={selected.includes(d.id)}
-                                onToggleSelect={() => toggleSelect(d.id)}
-                                onOpenReview={() => setReviewDetection(d)}
-                            />
-                        ))
-                    )}
-                </div>
-            )}
-
-            {tab === "annotate" && frames.length > 0 && (
-                <AnnotateView
-                    frames={frames}
-                    activeFrameIndex={activeFrameIndex}
-                    setActiveFrameIndex={setActiveFrameIndex}
-                    projectId={projectId}
-                />
-            )}
 
             {showUpload && (
                 <UploadMediaModal
@@ -398,774 +474,2748 @@ export default function ProjectPage({ projectId }: Props) {
                     onUploadComplete={handleUploadComplete}
                 />
             )}
-
             {reviewDetection && (
                 <ReviewModal
                     detection={reviewDetection}
+                    projectId={projectId}
                     onClose={() => setReviewDetection(null)}
                     onMarkReviewed={handleModalReviewed}
+                    onDeleted={handleModalDeleted}
                 />
             )}
         </div>
     );
 }
 
-/* DETECTION CARD */
-function DetectionCard({ detection: d, selected, onToggleSelect, onOpenReview }: {
-    detection: Detection;
-    selected: boolean;
-    onToggleSelect: () => void;
-    onOpenReview: () => void;
+/* ──────────────────────────────────────────────────────────────────────────
+   SIDEBAR
+   ────────────────────────────────────────────────────────────────────────── */
+function Sidebar({
+    screen,
+    setScreen,
+    collapsed,
+    setCollapsed,
+    project,
+    pendingCount,
+    onBack,
+    displayName,
+    userOrg,
+}: {
+    screen: Screen;
+    setScreen: (s: Screen) => void;
+    collapsed: boolean;
+    setCollapsed: (b: boolean) => void;
+    project: { id: string; name: string; type?: "active" | "test" };
+    pendingCount: number;
+    onBack: () => void;
+    displayName: string;
+    userOrg: string;
 }) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        const drawOnCanvas = (blobUrl: string) => {
-            const img = new Image();
-            img.onload = () => {
-                const [x1, y1, x2, y2] = d.bbox;
-                const scaleX = 300 / img.naturalWidth;
-                const scaleY = 170 / img.naturalHeight;
-                const boxH = (y2 - y1) * scaleY;
-                const fontSize = Math.max(8, Math.min(12, boxH * 0.15));
-
-                canvas.width = 300;
-                canvas.height = 170;
-                ctx.drawImage(img, 0, 0, 300, 170);
-                setLoading(false);
-
-                ctx.strokeStyle = "#d91414";
-                ctx.lineWidth = 2;
-                ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY);
-
-                const lbl = (d.display_label || "Unknown")
-                    .split(" ")
-                    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-                    .join(" ");
-
-                ctx.font = `bold ${fontSize}px system-ui`;
-                ctx.textBaseline = "bottom";
-                const tw = ctx.measureText(lbl).width;
-                ctx.fillStyle = "#d91414";
-                ctx.fillRect(x1 * scaleX, Math.max(0, y1 * scaleY - fontSize - 4), tw + 6, fontSize + 4);
-                ctx.fillStyle = "#ffffff";
-                ctx.fillText(lbl, x1 * scaleX + 3, y1 * scaleY);
-            };
-            img.src = blobUrl;
-        };
-
-        if (frameCache.has(d.frame_id)) {
-            drawOnCanvas(frameCache.get(d.frame_id)!);
-            return;
-        }
-
-        frameCache.set(d.frame_id, d.frame_url);
-        drawOnCanvas(d.frame_url);
-    }, [d.frame_id, d.bbox, d.display_label, d.frame_url]);
-
-    const cc = d.score >= 0.75 ? "High" : d.score >= 0.5 ? "Mid" : "Low";
-    let fillClass = styles.confFillLow;
-    if (cc === "High") fillClass = styles.confFillHigh;
-    if (cc === "Mid") fillClass = styles.confFillMid;
-
-    let valClass = styles.confValLow;
-    if (cc === "High") valClass = styles.confValHigh;
-    if (cc === "Mid") valClass = styles.confValMid;
+    const navItems: {
+        id: Screen;
+        label: string;
+        Icon: LucideIcon;
+        badge?: number;
+    }[] = [
+            { id: "gallery", label: "Detections", Icon: ImageIcon },
+            { id: "annotate", label: "Annotate", Icon: Tag, badge: pendingCount },
+            { id: "models", label: "Model Performance", Icon: Cpu },
+            { id: "datasets", label: "Datasets", Icon: Database },
+        ];
 
     return (
-        <div className={`${styles.card} ${selected ? styles.cardSelected : ""}`}>
+        <aside
+            className={styles.sidebar}
+            style={{ width: collapsed ? 60 : 220 }}
+        >
             <div
-                className={`${styles.cardCheckbox} ${selected ? styles.cardCheckboxChecked : ""}`}
-                onClick={e => { e.stopPropagation(); onToggleSelect(); }}
+                className={`${styles.sidebarHeader} ${collapsed ? styles.sidebarHeaderCollapsed : ""}`}
             >
-                {selected && (
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                        <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                <div className={styles.brand}>
+                    <div className={styles.logoMark}>
+                        <Fish size={17} color="#fff" />
+                    </div>
+                    {!collapsed && <div className={styles.brandName}>OMarine</div>}
+                </div>
+                {!collapsed && (
+                    <button
+                        className={styles.collapseBtn}
+                        onClick={() => setCollapsed(true)}
+                        aria-label="Collapse sidebar"
+                    >
+                        <ChevronLeft size={13} color="rgba(255,255,255,0.5)" />
+                    </button>
                 )}
             </div>
 
-            <div className={styles.cardImg}>
-                {loading && <div className={styles.cardImgLoading} />}
-                <canvas ref={canvasRef} width={300} height={170} className={styles.cardCanvas} />
+            {collapsed && (
+                <button
+                    className={styles.expandBtn}
+                    onClick={() => setCollapsed(false)}
+                    aria-label="Expand sidebar"
+                >
+                    <Menu size={14} color="rgba(255,255,255,0.5)" />
+                </button>
+            )}
+
+            <button
+                onClick={onBack}
+                className={`${styles.backBtn} ${collapsed ? styles.backBtnCollapsed : ""}`}
+                title={collapsed ? "All projects" : ""}
+            >
+                <ChevronLeft size={14} color="rgba(255,255,255,0.5)" />
+                {!collapsed && "All Projects"}
+            </button>
+
+            {!collapsed && (
+                <div className={styles.projectMeta}>
+                    <div className={styles.projectMetaLabel}>Current Project</div>
+                    <div className={styles.projectMetaName}>{project.name}</div>
+                    <div className={styles.projectMetaStatus}>
+                        <span
+                            className={styles.statusDot}
+                            style={{
+                                background:
+                                    project.type === "active"
+                                        ? "var(--success)"
+                                        : "var(--warning)",
+                            }}
+                        />
+                        {project.type ?? "active"}
+                    </div>
+                </div>
+            )}
+
+            <nav className={`${styles.nav} ${collapsed ? styles.navCollapsed : ""}`}>
+                {navItems.map(item => {
+                    const active = screen === item.id;
+                    return (
+                        <button
+                            key={item.id}
+                            onClick={() => setScreen(item.id)}
+                            title={collapsed ? item.label : ""}
+                            className={`${styles.navItem} ${active ? styles.navItemActive : ""} ${collapsed ? styles.navItemCollapsed : ""}`}
+                        >
+                            <item.Icon
+                                size={15}
+                                color={
+                                    active
+                                        ? "var(--primary-light)"
+                                        : "rgba(255,255,255,0.4)"
+                                }
+                            />
+                            {!collapsed && item.label}
+                            {!collapsed && item.badge && item.badge > 0 ? (
+                                <span className={styles.navBadge}>{item.badge}</span>
+                            ) : null}
+                        </button>
+                    );
+                })}
+            </nav>
+
+            <div className={styles.sidebarFooter}>
+                <form action={logout}>
+                    <button
+                        type="submit"
+                        className={`${styles.logoutBtn} ${collapsed ? styles.logoutBtnCollapsed : ""}`}
+                        title={collapsed ? "Log out" : ""}
+                    >
+                        <LogOut size={14} color="rgba(255,100,100,0.7)" />
+                        {!collapsed && "Log out"}
+                    </button>
+                </form>
+                {collapsed ? (
+                    <div className={styles.userPill} style={{ justifyContent: "center" }}>
+                        <div className={styles.userAvatar}>
+                            {displayName
+                                ? displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
+                                : "?"}
+                        </div>
+                    </div>
+                ) : (
+                    <div className={styles.userPill}>
+                        <div className={styles.userAvatar}>
+                            {displayName
+                                ? displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
+                                : "?"}
+                        </div>
+                        <div>
+                            <div className={styles.userName}>{displayName || "—"}</div>
+                            {userOrg && <div className={styles.userRole}>{userOrg}</div>}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </aside>
+    );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   GALLERY SCREEN (Images)
+   ────────────────────────────────────────────────────────────────────────── */
+function GalleryScreen({
+    project,
+    frames,
+    frameStatus,
+    detectionsByFrame,
+    statusFilter,
+    setStatusFilter,
+    search,
+    setSearch,
+    selectedDetectionId,
+    setSelectedDetectionId,
+    selectedFrame,
+    selectedFrameDetections,
+    reviewedCount,
+    needsReviewCount,
+    totalDetections,
+    pct,
+    processingList,
+    onDismissUpload,
+    onUpload,
+    onStartAnnotating,
+    onOpenReview,
+    onOpenInAnnotator,
+    semanticMode,
+    setSemanticMode,
+    semanticResults,
+    semanticLoading,
+    semanticError,
+    onSemanticSearch,
+    onSemanticClear,
+    onFindSimilar,
+}: {
+    project: { name: string };
+    frames: FrameRow[];
+    frameStatus: Record<string, "reviewed" | "needs_review" | "no_detections">;
+    detectionsByFrame: Detection[];
+    statusFilter: StatusFilter;
+    setStatusFilter: (s: StatusFilter) => void;
+    search: string;
+    setSearch: (s: string) => void;
+    selectedDetectionId: string | null;
+    setSelectedDetectionId: (id: string | null) => void;
+    selectedFrame: FrameRow | null;
+    selectedFrameDetections: Detection[];
+    reviewedCount: number;
+    needsReviewCount: number;
+    totalDetections: number;
+    pct: number;
+    processingList: ProcessingStatus [];
+    onDismissUpload: (id: string) => void;
+    onUpload: () => void;
+    onStartAnnotating: () => void;
+    onOpenReview: (d: Detection) => void;
+    onOpenInAnnotator: (frameId: string, detectionId: string) => void;
+    semanticMode: boolean;
+    setSemanticMode: (v: boolean) => void;
+    semanticResults: SemanticResult[];
+    semanticLoading: boolean;
+    semanticError: string | null;
+    onSemanticSearch: (q: string) => void;
+    onSemanticClear: () => void;
+    onFindSimilar: (detectionId: string) => void;
+}) {
+    const [sortConf, setSortConf] = useState<"off" | "high" | "low">("off");
+
+    const stats = [
+        {
+            key: "needs_review" as StatusFilter,
+            label: "Needs review",
+            count: needsReviewCount,
+            color: "var(--text3)",
+            bg: "var(--surface2)",
+        },
+        {
+            key: "reviewed" as StatusFilter,
+            label: "Reviewed",
+            count: reviewedCount,
+            color: "var(--success)",
+            bg: "rgba(94,201,154,0.1)",
+        },
+    ];
+
+    return (
+        <>
+            {/* Topbar */}
+            <div className={styles.topbar}>
+                <div>
+                    <div className={styles.topbarTitle}>{project.name}</div>
+                    <div className={styles.topbarSubtitle}>
+                        {totalDetections} detection{totalDetections !== 1 ? "s" : ""}
+                        {totalDetections > 0 && ` · ${pct}% reviewed`}
+                    </div>
+                </div>
+                <div className={styles.topbarActions}>
+                    <button onClick={onUpload} className={styles.btnSecondary}>
+                        <Plus size={13} />
+                        Upload media
+                    </button>
+                </div>
             </div>
 
-            <div className={styles.cardBody}>
-                <div className={styles.cardHeader}>
-                    <div>
-                        <div className={styles.cardLabel}>
-                            {(d.display_label || "Unknown")
-                                .split(" ")
-                                .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-                                .join(" ")}
-                        </div>
-                        <div className={styles.cardTaxon}>{d.taxon ?? "—"}</div>
-                    </div>
-                    <span className={`${styles.statusPill} ${d.status === "reviewed" ? styles.statusReviewed : styles.statusNeeds}`}>
-                        {d.status === "reviewed" ? "Reviewed" : "Needs review"}
-                    </span>
-                </div>
+            {/* Processing bar */}
+            {processingList.length > 0 && (() => {
+    const p = processingList[processingList.length - 1];
+    const isDone = p.status === "segmented" || p.status === "ready";
+    const isFailed = p.status === "failed";
+    const pct = p.totalFrames > 0 ? (p.framesProcessed / p.totalFrames) * 100 : 0;
 
-                <div className={styles.confRow}>
-                    <span className={styles.confLbl}>Conf.</span>
-                    <div className={styles.confBar}>
-                        <div className={`${styles.confFill} ${fillClass}`} style={{ width: `${d.score * 100}%` }} />
-                    </div>
-                    <span className={`${styles.confVal} ${valClass}`}>
-                        {Math.round(d.score * 100)}%
-                    </span>
-                </div>
+    return (
+        <div
+            className={styles.processingBar}
+            style={{
+                background: isFailed ? "rgba(220,50,50,0.08)" : isDone ? "rgba(94,201,154,0.08)" : undefined,
+                borderBottom: `1px solid ${isFailed ? "rgba(220,50,50,0.2)" : isDone ? "rgba(94,201,154,0.2)" : "rgba(255,255,255,0.06)"}`,
+            }}
+        >
+            {!isDone && !isFailed && <div className={styles.processingSpinner} />}
+            {isDone && <span style={{ fontSize: 14, color: "var(--success)", flexShrink: 0 }}>✓</span>}
+            {isFailed && <span style={{ fontSize: 14, color: "var(--danger)", flexShrink: 0 }}>✕</span>}
 
-                <div className={styles.cardFooter}>
-                    {d.status === "needs_review" ? (
-                        <button className={styles.btnReview} onClick={onOpenReview}>Review</button>
-                    ) : (
-                        <span className={styles.btnReviewed}>
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                <circle cx="6" cy="6" r="5" stroke="var(--teal)" strokeWidth="1.2" />
-                                <path d="M3.5 6l2 2 3-3" stroke="var(--teal)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Reviewed
-                        </span>
+            <span className={styles.processingLabel} style={{
+                color: isFailed ? "var(--danger)" : isDone ? "var(--success)" : undefined,
+            }}>
+                {isDone
+                    ? `Upload complete — ${p.framesProcessed} of ${p.totalFrames} frames processed`
+                    : isFailed
+                    ? `Upload failed${p.errorMessage ? `: ${p.errorMessage.slice(0, 80)}` : ""}`
+                    : `Analysing frames — ${p.framesProcessed} of ${p.totalFrames} processed`}
+            </span>
+
+            {!isFailed && (
+                <div className={styles.processingTrack}>
+                    <div
+                        className={styles.processingFill}
+                        style={{
+                            width: `${isDone ? 100 : pct}%`,
+                            background: isDone ? "var(--success)" : undefined,
+                            transition: "width 0.4s ease",
+                        }}
+                    />
+                </div>
+            )}
+            {(isDone || isFailed) && (
+                <button
+                    onClick={() => onDismissUpload(p.uploadId)}
+                    style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        color: "var(--text3)", fontSize: 18, lineHeight: 1,
+                        padding: "0 4px", flexShrink: 0,
+                    }}
+                >×</button>
+            )}
+        </div>
+    );
+})()}
+
+            {/* Stats strip */}
+            <div className={styles.statsStrip}>
+                {stats.map(s => {
+                    const active = statusFilter === s.key;
+                    return (
+                        <button
+                            key={s.key}
+                            onClick={() =>
+                                setStatusFilter(active ? "all" : s.key)
+                            }
+                            className={styles.statChip}
+                            style={{
+                                borderColor: active ? s.color : "transparent",
+                                background: active ? s.bg : "transparent",
+                            }}
+                        >
+                            <span
+                                className={styles.statChipDot}
+                                style={{ background: s.color }}
+                            />
+                            <span
+                                className={styles.statChipCount}
+                                style={{ color: s.color }}
+                            >
+                                {s.count}
+                            </span>
+                            <span className={styles.statChipLabel}>{s.label}</span>
+                        </button>
+                    );
+                })}
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className={styles.searchBox}>
+                        <Search size={14} color="var(--text3)" />
+                        <input
+                            value={search}
+                            onChange={e => {
+                                setSearch(e.target.value);
+                                if (semanticMode && !e.target.value.trim()) onSemanticClear();
+                            }}
+                            onKeyDown={e => {
+                                if (semanticMode && e.key === "Enter") onSemanticSearch(search);
+                            }}
+                            placeholder={semanticMode ? "Describe what to find… (Enter)" : "Search frames…"}
+                            className={styles.searchInput}
+                        />
+                    </div>
+                    <button
+                        className={`${styles.semanticBtn} ${semanticMode ? styles.semanticBtnActive : ""}`}
+                        onClick={() => setSemanticMode(!semanticMode)}
+                        title="Toggle AI semantic search"
+                    >
+                        AI Search
+                    </button>
+                    {!semanticMode && statusFilter !== "all" && (
+                        <button
+                            onClick={() => setStatusFilter("all")}
+                            className={styles.btnSecondary}
+                            style={{ padding: "5px 10px", fontSize: 11 }}
+                        >
+                            Clear filter
+                        </button>
                     )}
-                    <button className={styles.btnDetail} onClick={onOpenReview}>Details →</button>
+                    {!semanticMode && (
+                        <select
+                            value={sortConf}
+                            onChange={e => setSortConf(e.target.value as "off" | "high" | "low")}
+                            className={styles.btnSecondary}
+                            style={{ padding: "5px 10px", fontSize: 11, cursor: "pointer" }}
+                        >
+                            <option value="off">Sort by confidence</option>
+                            <option value="high">Confidence ↓ high</option>
+                            <option value="low">Confidence ↑ low</option>
+                        </select>
+                    )}
+                </div>
+            </div>
+
+            {/* Body: frame grid + detail panel */}
+            <div className={styles.galleryBody}>
+                <div className={styles.frameGrid}>
+                    {(() => {
+                        if (semanticMode) {
+                            if (semanticLoading) {
+                                return <div className={styles.emptyState}>Searching…</div>;
+                            }
+                            if (semanticError) {
+                                return <div className={styles.emptyState} style={{ color: "var(--danger, #f87171)" }}>{semanticError}</div>;
+                            }
+                            if (semanticResults.length === 0) {
+                                return <div className={styles.emptyState}>Type a description and press Enter to search.</div>;
+                            }
+                            const semanticDetections = semanticResults
+                                .map(r => {
+                                    const det = detectionsByFrame.find(d => d.id === r.detection_id);
+                                    if (!det) return null;
+                                    return { det, similarity: r.similarity };
+                                })
+                                .filter((x): x is { det: Detection; similarity: number } => x !== null);
+
+                            if (semanticDetections.length === 0) {
+                                return <div className={styles.emptyState}>No loaded detections matched the results.</div>;
+                            }
+                            return (
+                                <>
+                                    <div className={styles.semanticChip}>
+                                        {semanticDetections.length} match{semanticDetections.length !== 1 ? "es" : ""} for &ldquo;{search}&rdquo;
+                                        <button className={styles.semanticChipClear} onClick={onSemanticClear}>✕</button>
+                                    </div>
+                                    {semanticDetections.map(({ det, similarity }) => {
+                                        const frame = frames.find(f => f.id === det.frame_id);
+                                        if (!frame) return null;
+                                        return (
+                                            <DetectionThumb
+                                                key={det.id}
+                                                detection={det}
+                                                frame={frame}
+                                                selected={selectedDetectionId === det.id}
+                                                similarity={similarity}
+                                                onClick={() =>
+                                                    setSelectedDetectionId(
+                                                        selectedDetectionId === det.id ? null : det.id
+                                                    )
+                                                }
+                                            />
+                                        );
+                                    })}
+                                </>
+                            );
+                        }
+
+                        const visibleDetections = detectionsByFrame.filter(d => {
+                            const matchStatus =
+                                statusFilter === "all" ||
+                                (statusFilter === "reviewed" && d.status === "reviewed") ||
+                                (statusFilter === "needs_review" && d.status === "needs_review");
+                            const q = search.trim().toLowerCase();
+                            const matchSearch =
+                                !q ||
+                                d.source_filename.toLowerCase().includes(q) ||
+                                (d.display_label ?? "").toLowerCase().includes(q) ||
+                                (d.taxon ?? "").toLowerCase().includes(q);
+                            return matchStatus && matchSearch;
+                        });
+
+                        const sorted = sortConf === "high"
+                            ? [...visibleDetections].sort((a, b) => b.score - a.score)
+                            : sortConf === "low"
+                                ? [...visibleDetections].sort((a, b) => a.score - b.score)
+                                : visibleDetections;
+
+                        if (visibleDetections.length === 0) {
+                            return (
+                                <div className={styles.emptyState}>
+                                    {frames.length === 0
+                                        ? processingList.some(p => p.status === "processing")
+                                            ? "Waiting for frames…"
+                                            : "No frames yet — upload media to get started."
+                                        : "No detections match this filter."}
+                                </div>
+                            );
+                        }
+
+                        return sorted.map(det => {
+                            const frame = frames.find(f => f.id === det.frame_id);
+                            if (!frame) return null;
+                            return (
+                                <DetectionThumb
+                                    key={det.id}
+                                    detection={det}
+                                    frame={frame}
+                                    selected={selectedDetectionId === det.id}
+                                    onClick={() =>
+                                        setSelectedDetectionId(
+                                            selectedDetectionId === det.id ? null : det.id
+                                        )
+                                    }
+                                />
+                            );
+                        });
+                    })()}
+                </div>
+
+                {selectedFrame && (
+                    <FrameDetailPanel
+                        frame={selectedFrame}
+                        detections={selectedFrameDetections}
+                        status={frameStatus[selectedFrame.id]}
+                        selectedDetectionId={selectedDetectionId}
+                        onClose={() => setSelectedDetectionId(null)}
+                        onAnnotate={onStartAnnotating}
+                        onOpenReview={onOpenReview}
+                        onOpenInAnnotator={onOpenInAnnotator}
+                        onFindSimilar={onFindSimilar}
+                    />
+                )}
+            </div>
+        </>
+    );
+}
+
+function DetectionThumb({
+    detection,
+    frame,
+    selected,
+    onClick,
+    similarity,
+}: {
+    detection: Detection;
+    frame: FrameRow;
+    selected: boolean;
+    onClick: () => void;
+    similarity?: number;
+}) {
+    const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+    const statusColor =
+        detection.status === "reviewed" ? "var(--success)" : "var(--warning)";
+
+    const frameDets = frame.detections;
+
+    return (
+        <div
+            onClick={onClick}
+            className={`${styles.frameThumb} ${selected ? styles.frameThumbSelected : ""}`}
+        >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+                src={frame.frame_url}
+                alt={frame.source_filename}
+                className={styles.frameThumbImg}
+                loading="lazy"
+                onLoad={(e) => {
+                    const img = e.currentTarget;
+                    setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+                }}
+            />
+
+            {/* selected overlay */}
+            {selected && (
+                <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(127, 163, 232, 0.15)",
+                    zIndex: 2,
+                    pointerEvents: "none",
+                }} />
+            )}
+
+            {/* loading overlay */}
+            {frame.status !== "segmented" && (
+                <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(10, 16, 24, 0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 3,
+                    pointerEvents: "none",
+                }}>
+                    <div className={styles.loadingSpinner} style={{ width: 20, height: 20, borderWidth: 2 }} />
+                </div>
+            )}
+
+            {/* bbox overlay */}
+            {imgSize && (() => {
+                const [x1, y1, x2, y2] = detection.bbox;
+                const left = (x1 / imgSize.w) * 100;
+                const top = (y1 / imgSize.h) * 100;
+                const width = ((x2 - x1) / imgSize.w) * 100;
+                const height = ((y2 - y1) / imgSize.h) * 100;
+                const bboxW = ((x2 - x1) / imgSize.w) * 180;
+                const fontSize = Math.min(11, Math.max(7, bboxW / 8));
+                return (
+                    <div
+                        style={{
+                            position: "absolute",
+                            left: `${left}%`,
+                            top: `${top}%`,
+                            width: `${width}%`,
+                            height: `${height}%`,
+                            border: "1.5px solid #ff4444",
+                            boxSizing: "border-box",
+                            pointerEvents: "none",
+                            zIndex: 1,
+                            overflow: "visible",
+                        }}
+                    >
+                        <div style={{
+                            position: "absolute",
+                            top: top < 5 ? "100%" : 0,
+                            bottom: top < 5 ? "auto" : "auto",
+                            left: 0,
+                            transform: top < 5 ? "translateY(0)" : "translateY(-100%)",
+                            background: "#ff4444",
+                            color: "#fff",
+                            fontSize: `${fontSize}px`,
+                            fontWeight: 700,
+                            padding: "1px 4px",
+                            lineHeight: 1.4,
+                            whiteSpace: "nowrap",
+                            fontFamily: "var(--font-dm-mono), 'DM Mono', monospace",
+                        }}>
+                            {detection.display_label || "Unknown"} {Math.round(detection.score * 100)}%
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* similarity badge */}
+            {similarity !== undefined && (
+                <div className={styles.matchBadge}>
+                    {Math.round(similarity * 100)}% match
+                </div>
+            )}
+        </div>
+    );
+}
+
+function FrameDetailPanel({
+    frame,
+    detections,
+    status,
+    onClose,
+    onAnnotate,
+    onOpenReview,
+    selectedDetectionId,
+    onOpenInAnnotator,
+    onFindSimilar,
+}: {
+    frame: FrameRow;
+    detections: Detection[];
+    status: "reviewed" | "needs_review" | "no_detections" | undefined;
+    onClose: () => void;
+    onAnnotate: () => void;
+    onOpenReview: (d: Detection) => void;
+    selectedDetectionId: string | null;
+    onOpenInAnnotator: (frameId: string, detectionId: string) => void;
+    onFindSimilar: (detectionId: string) => void;
+}) {
+    const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+
+    const activeDet = selectedDetectionId
+        ? detections.find(d => d.id === selectedDetectionId) ?? detections[0]
+        : detections[0];
+
+    const statusBadge =
+        activeDet?.status === "reviewed"
+            ? { label: "Reviewed", color: "var(--success)", bg: "rgba(94,201,154,0.12)" }
+            : { label: "Needs review", color: "var(--warning)", bg: "rgba(245,188,98,0.15)" };
+
+    return (
+        <div className={styles.detailPanel}>
+            <div className={styles.detailPanelHeader}>
+                <div className={styles.detailPanelTitle}>Frame Detail</div>
+                <button
+                    onClick={onClose}
+                    aria-label="Close detail panel"
+                    style={{
+                        width: 24, height: 24, borderRadius: 5,
+                        border: "1.5px solid var(--border)",
+                        background: "var(--surface)", cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                >
+                    <X size={12} color="var(--text3)" />
+                </button>
+            </div>
+            <div className={styles.detailPanelBody}>
+                <div style={{
+                    borderRadius: 8,
+                    overflow: "hidden",
+                    background: "#11293f",
+                    position: "relative",
+                    width: "100%",
+                }}>
+                    <img
+                        src={frame.frame_url}
+                        alt={frame.source_filename}
+                        style={{
+                            width: "100%",
+                            height: "auto",
+                            display: "block",
+                            zIndex: 0,
+                        }}
+                        onLoad={(e) => {
+                            const img = e.currentTarget;
+                            setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+                        }}
+                    />
+                    {imgSize && detections
+                        .filter(det => selectedDetectionId === null || det.id === selectedDetectionId)
+                        .map((det) => {
+                            const [x1, y1, x2, y2] = det.bbox;
+                            const left = (x1 / imgSize.w) * 100;
+                            const top = (y1 / imgSize.h) * 100;
+                            const width = ((x2 - x1) / imgSize.w) * 100;
+                            const height = ((y2 - y1) / imgSize.h) * 100;
+                            const bboxW = ((x2 - x1) / imgSize.w) * 258;
+                            const fontSize = Math.min(11, Math.max(7, bboxW / 8));
+                            return (
+                                <div
+                                    key={det.id}
+                                    style={{
+                                        position: "absolute",
+                                        left: `${left}%`,
+                                        top: `${top}%`,
+                                        width: `${width}%`,
+                                        height: `${height}%`,
+                                        border: "1.5px solid #ff4444",
+                                        boxSizing: "border-box",
+                                        pointerEvents: "none",
+                                        zIndex: 1,
+                                        overflow: "visible",
+                                    }}
+                                >
+                                    <div style={{
+                                        position: "absolute",
+                                        top: top < 5 ? "100%" : 0,
+                                        left: 0,
+                                        transform: top < 5 ? "translateY(0)" : "translateY(-100%)",
+                                        background: "#ff4444",
+                                        color: "#fff",
+                                        fontSize: `${fontSize}px`,
+                                        fontWeight: 700,
+                                        padding: "1px 4px",
+                                        lineHeight: 1.4,
+                                        whiteSpace: "nowrap",
+                                        fontFamily: "var(--font-dm-mono), 'DM Mono', monospace",
+                                    }}>
+                                        {det.display_label || "Unknown"} {Math.round(det.score * 100)}%
+                                    </div>
+                                </div>
+                            );
+                        })}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, fontStyle: "italic", color: "var(--text1)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {activeDet?.display_label || "Unknown"}
+                    </span>
+                    <span style={{
+                        fontSize: 12, fontWeight: 700,
+                        color: (activeDet?.score ?? 0) > 0.75 ? "var(--success)" : (activeDet?.score ?? 0) > 0.5 ? "var(--warning)" : "var(--danger)",
+                        background: (activeDet?.score ?? 0) > 0.75 ? "rgba(94,201,154,0.12)" : (activeDet?.score ?? 0) > 0.5 ? "rgba(245,188,98,0.15)" : "rgba(220,50,50,0.1)",
+                        padding: "2px 8px", borderRadius: 99,
+                    }}>
+                        {Math.round((activeDet?.score ?? 0) * 100)}%
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text3)" }}>· {detections.length} detections</span>
+                </div>
+
+                <div>
+                    <div className={styles.detailLabel}>Status</div>
+                    <StatusBadge label={statusBadge.label} color={statusBadge.color} bg={statusBadge.bg} />
+                </div>
+
+                <div>
+                    <div className={styles.detailLabel}>Frame</div>
+                    <div className={`${styles.detailValue} ${styles.detailValueMono}`} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+                        {frame.source_filename}
+                    </div>
+                </div>
+
+                {detections.length > 0 && (
+                    <div>
+                        <div className={styles.detailLabel}>Detections ({detections.length})</div>
+                        <div className="flex flex-col" style={{ gap: 6 }}>
+                            {detections
+                                .sort((a, b) => b.score - a.score)
+                                .filter(d => selectedDetectionId === null || d.id === selectedDetectionId)
+                                .slice(0, 4)
+                                .map(d => (
+                                    <button
+                                        key={d.id}
+                                        onClick={() => onOpenReview(d)}
+                                        style={{
+                                            textAlign: "left",
+                                            padding: "8px 10px",
+                                            borderRadius: 7,
+                                            border: "1.5px solid var(--border)",
+                                            background: "var(--surface2)",
+                                            cursor: "pointer",
+                                            fontFamily: "inherit",
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                            <span style={{ fontSize: 12, fontWeight: 600, fontStyle: "italic", color: "var(--text1)" }}>
+                                                {d.display_label || "Unknown"}
+                                            </span>
+                                            <span style={{ fontSize: 11, fontWeight: 700, color: d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)" }}>
+                                                {Math.round(d.score * 100)}%
+                                            </span>
+                                        </div>
+                                        <div style={{ marginTop: 4 }}>
+                                            <ProgressBar value={d.score * 100} color={d.score > 0.75 ? "var(--success)" : d.score > 0.5 ? "var(--warning)" : "var(--danger)"} height={3} />
+                                        </div>
+                                    </button>
+                                ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex flex-col" style={{ gap: 6, paddingTop: 4 }}>
+                    {selectedDetectionId && (
+                        <button
+                            onClick={() => onFindSimilar(selectedDetectionId)}
+                            className={styles.btnSecondary}
+                            style={{ width: "100%", justifyContent: "center" }}
+                        >
+                            Find Similar
+                        </button>
+                    )}
+                    <button
+                        onClick={() => onOpenInAnnotator(frame.id, selectedDetectionId ?? "")}
+                        className={styles.btnPrimary}
+                        style={{ width: "100%", justifyContent: "center" }}
+                    >
+                        Open in Annotator
+                    </button>
                 </div>
             </div>
         </div>
     );
 }
 
-function AnnotateView({
+/* ──────────────────────────────────────────────────────────────────────────
+   ANNOTATE SCREEN
+   ────────────────────────────────────────────────────────────────────────── */
+function AnnotateScreen({
+    project,
     frames,
-    activeFrameIndex,
-    setActiveFrameIndex,
     projectId,
+    initialDetectionId,
+    onEntered,
+    initialFrameId,
 }: {
-    frames: any[];
-    activeFrameIndex: number;
-    setActiveFrameIndex: (i: number | ((p: number) => number)) => void;
+    project: { name: string };
+    frames: FrameRow[];
     projectId: string;
+    initialFrameId: string | null;
+    initialDetectionId: string | null;
+    onEntered: () => void;
 }) {
-    const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
-    const selectedFrame = frames.find(f => f.id === selectedFrameId);
-    const selectedFrameIndex = frames.findIndex(f => f.id === selectedFrameId);
+    const readyFrames = frames.filter(f => f.status !== "queued");
+    const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
+        initialFrameId ?? readyFrames[0]?.id ?? null
+    );
+    const selectedFrame = readyFrames.find(f => f.id === selectedFrameId);
+    const selectedFrameIndex = readyFrames.findIndex(f => f.id === selectedFrameId);
+    const [viewMode, setViewMode] = useState<"grid" | "single">(
+        initialFrameId ? "single" : "grid"
+    );
 
-    // Frame gallery view
-    if (!selectedFrameId) {
+    if (viewMode === "grid") {
         return (
-            <div style={{ padding: "24px", flex: 1 }}>
-                <div style={{ marginBottom: 16 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                        {frames.length} frames — click to annotate
-                    </span>
-                </div>
-                <div style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-                    gap: 12,
-                }}>
-                    {frames.map((f, i) => (
-                        <div
-                            key={f.id}
-                            onClick={() => {
-                                setSelectedFrameId(f.id);
-                                setActiveFrameIndex(i);
-                            }}
-                            style={{
-                                borderRadius: 10,
-                                overflow: "hidden",
-                                cursor: "pointer",
-                                border: "1px solid rgba(255,255,255,0.07)",
-                                background: "#0d1e30",
-                                transition: "all 0.2s",
-                                position: "relative",
-                            }}
-                            onMouseEnter={e => (e.currentTarget.style.borderColor = "#00b4a0")}
-                            onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)")}
-                        >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                                src={f.frame_url}
-                                alt={f.source_filename ?? `Frame ${i + 1}`}
-                                style={{ width: "100%", height: 150, objectFit: "cover", display: "block" }}
-                            />
-                            <div style={{ padding: "10px 12px" }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: "#fff", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                    {f.source_filename ?? `Frame ${i + 1}`}
-                                </div>
-                                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
-                                    {f.detections?.length ?? 0} detections
-                                </div>
-                            </div>
-                            <div style={{
-                                position: "absolute", top: 8, right: 8,
-                                background: "rgba(0,0,0,0.55)", borderRadius: 5,
-                                padding: "2px 8px", fontSize: 10, fontWeight: 600,
-                                color: "rgba(255,255,255,0.7)", backdropFilter: "blur(4px)"
-                            }}>
-                                {i + 1} / {frames.length}
-                            </div>
+            <>
+                <div className={styles.annotateHeader}>
+                    <div className={styles.annotateHeaderLeft}>
+                        <span className={styles.annotateTitle}>{project.name}</span>
+                    </div>
+                    <div className={styles.annotateHeaderRight}>
+                        <div className={styles.viewSwitch}>
+                            <button className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnActive}`}>
+                                <LayoutGrid size={13} />
+                                Grid
+                            </button>
+                            <button
+                                onClick={() => setViewMode("single")}
+                                className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnSingle}`}
+                            >
+                                <Tag size={13} />
+                                Single
+                            </button>
                         </div>
-                    ))}
+                    </div>
                 </div>
-            </div>
+                <div style={{ flex: 1, padding: "20px 24px", overflow: "auto" }}>
+                    <div style={{ fontSize: 13, color: "var(--text3)", marginBottom: 12 }}>
+                        {readyFrames.length} frame{readyFrames.length !== 1 ? "s" : ""} — click to annotate
+                    </div>
+                    <div
+                        className="grid"
+                        style={{
+                            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                            gap: 12,
+                        }}
+                    >
+                        {readyFrames.map(f => {
+                            const isSelected = f.id === selectedFrameId;
+                            return (
+                                <div
+                                    key={f.id}
+                                    onClick={() => { setSelectedFrameId(f.id); setViewMode("single"); }}
+                                    style={{
+                                        borderRadius: 10,
+                                        overflow: "hidden",
+                                        cursor: "pointer",
+                                        border: isSelected ? "2px solid var(--primary)" : "1px solid var(--border)",
+                                        background: "var(--surface)",
+                                        boxShadow: isSelected ? "0 0 0 3px var(--primary-pale)" : "var(--shadow-sm)",
+                                    }}
+                                >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                        src={f.frame_url}
+                                        alt={f.source_filename}
+                                        style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+                                    />
+                                    <div style={{ padding: "8px 10px" }}>
+                                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                            {f.source_filename}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                                            {f.detections.length} detection{f.detections.length !== 1 ? "s" : ""}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </>
         );
     }
 
-    // Annotate review view
     return (
         <AnnotateReview
-            frames={frames}
-            initialFrameIndex={selectedFrameIndex}
+            project={project}
+            frames={readyFrames}
+            initialFrameIndex={selectedFrameIndex < 0 ? 0 : selectedFrameIndex}
             projectId={projectId}
-            onBack={() => setSelectedFrameId(null)}
-            onFrameChange={(i) => setSelectedFrameId(frames[i]?.id ?? null)}
+            initialDetectionId={initialDetectionId}
+            onEntered={onEntered}
+            onBack={() => setViewMode("grid")}
+            onFrameChange={i => setSelectedFrameId(readyFrames[i]?.id ?? null)}
         />
     );
 }
 
 function AnnotateReview({
+    project,
     frames,
     initialFrameIndex,
     projectId,
     onBack,
     onFrameChange,
+    initialDetectionId,
+    onEntered,
 }: {
-    frames: any[];
+    project: { name: string };
+    frames: FrameRow[];
     initialFrameIndex: number;
     projectId: string;
     onBack: () => void;
     onFrameChange: (i: number) => void;
+    initialDetectionId: string | null;
+    onEntered: () => void;
 }) {
+    // refs
+    const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const imgRef = useRef<HTMLImageElement | null>(null);
+    const rafRef = useRef<number>(0);
+
+    // frame navigation
     const [activeFrameIndex, setActiveFrameIndex] = useState(initialFrameIndex);
     const frame = frames[activeFrameIndex];
- 
-    // Machine detections
+
+    // reviewMode removed — panel is always-on in the new per-detection review workflow
+    const [editingDetectionId, setEditingDetectionId] = useState<string | null>(null);
+    const [pendingLabels, setPendingLabels] = useState<Map<string, string>>(new Map());
+    const [savingReview, setSavingReview] = useState(false);
+    const [reviewedWithoutScore, setReviewedWithoutScore] = useState<Set<string>>(new Set());
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [, setToastTick] = useState(0);
+
+    // data
     const [detections, setDetections] = useState<any[]>([]);
-    const [activeDetectionId, setActiveDetectionId] = useState<string | null>(null);
+    const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
     const [loadingDets, setLoadingDets] = useState(false);
+    const [loadingBboxes, setLoadingBboxes] = useState(false);
+    const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(new Map());
+    const detectionGroups = useMemo(() => groupDetections(detections), [detections]);
+    const reviewedCount = detectionGroups.filter(({ primary: d }) => d.status === "reviewed").length + boundingBoxes.length;
+    const totalCount = detectionGroups.length + boundingBoxes.length;
+
+    // selection
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const [activeType, setActiveType] = useState<"det" | "bbox" | null>(null);
+    const [hovId, setHovId] = useState<string | null>(null);
     const [editLabel, setEditLabel] = useState("");
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
-    const detectionGroups = useMemo(() => groupDetections(detections), [detections]);
-    const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(new Map());
- 
-    // Human bounding boxes
-    const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
-    const [activeBboxId, setActiveBboxId] = useState<string | null>(null);
-    const [loadingBboxes, setLoadingBboxes] = useState(false);
- 
-    // Draw mode
-    const [drawMode, setDrawMode] = useState(false);
-    const [isDrawing, setIsDrawing] = useState(false);
-    const drawStart = useRef<{ x: number; y: number } | null>(null);
-    const drawCurrent = useRef<{ x: number; y: number } | null>(null);
- 
-    // Species popover
+
+    // transform (scale + offset in canvas pixels)
+    const [tf, setTf] = useState({ scale: 1, ox: 0, oy: 0 });
+    const tfRef = useRef(tf);
+    tfRef.current = tf;
+    const fitTfRef = useRef({ scale: 1, ox: 0, oy: 0 });
+    const [zoomLevel, setZoomLevel] = useState(1);
+    const zoomLevelRef = useRef(1);
+    const [editedIds, setEditedIds] = useState<Set<string>>(new Set());
+
+    // mode
+    const [mode, setMode] = useState<"select" | "draw">("select");
+    const [hideDetections, setHideDetections] = useState(false);
+
+    // draw state
     const [pendingBox, setPendingBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const [labelInput, setLabelInput] = useState("");
     const [savingBbox, setSavingBbox] = useState(false);
- 
-    // Load detections + bboxes when frame changes
+    const drawStartRef = useRef<{ ix: number; iy: number } | null>(null);
+    const drawCurRef = useRef<{ ix: number; iy: number } | null>(null);
+
+    // interaction refs
+    const dragRef = useRef<{ id: string; type: "det" | "bbox"; sx: number; sy: number; ob: number[]; moved: boolean } | null>(null);
+    const resizeRef = useRef<{ id: string; type: "det" | "bbox"; corner: "tl" | "tr" | "bl" | "br"; sx: number; sy: number; ob: number[] } | null>(null);
+    const panRef = useRef<{ startCx: number; startCy: number; startOx: number; startOy: number } | null>(null);
+    const [isPanning, setIsPanning] = useState(false);
+    const didApplyInitial = useRef(false);
+
+    // coord helpers
+    function toCanvas(ix: number, iy: number) {
+        const { scale, ox, oy } = tfRef.current;
+        return { cx: ix * scale + ox, cy: iy * scale + oy };
+    }
+    function toImg(cx: number, cy: number) {
+        const { scale, ox, oy } = tfRef.current;
+        return { ix: (cx - ox) / scale, iy: (cy - oy) / scale };
+    }
+    function clientToCanvas(e: React.MouseEvent) {
+        const c = canvasRef.current!;
+        const r = c.getBoundingClientRect();
+        return {
+            cx: (e.clientX - r.left) * (c.width / r.width),
+            cy: (e.clientY - r.top) * (c.height / r.height),
+        };
+    }
+    function cornerHit(cx: number, cy: number, box: number[]): "tl" | "tr" | "bl" | "br" | null {
+        const [x1, y1, x2, y2] = box;
+        const { cx: bx1, cy: by1 } = toCanvas(x1, y1);
+        const { cx: bx2, cy: by2 } = toCanvas(x2, y2);
+        const R = 7;
+        if (Math.abs(cx - bx1) < R && Math.abs(cy - by1) < R) return "tl";
+        if (Math.abs(cx - bx2) < R && Math.abs(cy - by1) < R) return "tr";
+        if (Math.abs(cx - bx1) < R && Math.abs(cy - by2) < R) return "bl";
+        if (Math.abs(cx - bx2) < R && Math.abs(cy - by2) < R) return "br";
+        return null;
+    }
+    function inBox(cx: number, cy: number, box: number[]) {
+        const { ix, iy } = toImg(cx, cy);
+        const [x1, y1, x2, y2] = box;
+        return ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2;
+    }
+
+    // zoom
+    const applyZoom = useCallback((newZ: number) => {
+        const fit = fitTfRef.current;
+        const c = canvasRef.current;
+        if (!c) return;
+        const cx = c.width / 2;
+        const cy = c.height / 2;
+        const cur = tfRef.current;
+        const newScale = fit.scale * newZ;
+        const ratio = newScale / cur.scale;
+        const newTf = { scale: newScale, ox: cx - (cx - cur.ox) * ratio, oy: cy - (cy - cur.oy) * ratio };
+        setTf(newTf);
+        tfRef.current = newTf;
+        setZoomLevel(newZ);
+        zoomLevelRef.current = newZ;
+    }, []);
+    const zoomIn = useCallback(() => applyZoom(Math.min(zoomLevelRef.current * 1.4, 20)), [applyZoom]);
+    const zoomOut = useCallback(() => applyZoom(Math.max(zoomLevelRef.current / 1.4, 0.1)), [applyZoom]);
+    const zoomReset = useCallback(() => applyZoom(1), [applyZoom]);
+
+    // wheel zoom
+    useEffect(() => {
+        const c = canvasRef.current;
+        if (!c) return;
+        function onWheel(e: WheelEvent) {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+            applyZoom(Math.min(Math.max(zoomLevelRef.current * factor, 0.1), 20));
+        }
+        c.addEventListener("wheel", onWheel, { passive: false });
+        return () => c.removeEventListener("wheel", onWheel);
+    }, [applyZoom]);
+
+    // fit image to container
+    const fitImage = useCallback(() => {
+        const c = canvasRef.current;
+        const img = imgRef.current;
+        if (!c || !img || !img.naturalWidth) return;
+        const scale = Math.min(c.width / img.naturalWidth, c.height / img.naturalHeight) * 0.95;
+        const ox = (c.width - img.naturalWidth * scale) / 2;
+        const oy = (c.height - img.naturalHeight * scale) / 2;
+        const newTf = { scale, ox, oy };
+        fitTfRef.current = newTf;
+        setTf(newTf);
+        tfRef.current = newTf;
+        setZoomLevel(1);
+        zoomLevelRef.current = 1;
+    }, []);
+
+    // load image on frame change
+    useEffect(() => {
+        if (!frame?.frame_url) return;
+        const img = new Image();
+        img.onload = () => { imgRef.current = img; fitImage(); };
+        img.src = frame.frame_url;
+    }, [frame?.frame_url, fitImage]);
+
+    // resize observer
+    useEffect(() => {
+        const wrap = containerRef.current;
+        if (!wrap) return;
+        const obs = new ResizeObserver(() => {
+            const c = canvasRef.current;
+            if (!c) return;
+            c.width = wrap.clientWidth;
+            c.height = wrap.clientHeight;
+            fitImage();
+        });
+        obs.observe(wrap);
+        return () => obs.disconnect();
+    }, [fitImage]);
+
+    // load data on frame change
     useEffect(() => {
         if (!frame) return;
-        setActiveDetectionId(null);
-        setActiveBboxId(null);
+        setActiveId(null);
+        setActiveType(null);
         setEditLabel("");
         setSaveError(null);
         setPendingBox(null);
-        setDrawMode(false);
-        setIsDrawing(false);
- 
+        drawStartRef.current = null;
+        drawCurRef.current = null;
+        setReviewedWithoutScore(new Set());
+
+        const ac = new AbortController();
+
         setLoadingDets(true);
-        api.getFrameDetections(projectId, frame.id)
+        api.getFrameDetections(projectId, frame.id, ac.signal)
             .then(data => {
+                if (ac.signal.aborted) return;
                 const dets = (data.detections ?? data).filter((d: any) => d.annotation_source !== "human");
                 setDetections(dets);
+                if (!didApplyInitial.current && initialDetectionId) {
+                    const target = dets.find((d: any) => d.id === initialDetectionId);
+                    if (target) {
+                        setActiveId(initialDetectionId);
+                        setActiveType("det");
+                    }
+                    didApplyInitial.current = true;
+                    onEntered();
+                }
                 setLabelColorMap(buildLabelColorMap(dets));
             })
-            .catch(console.error)
-            .finally(() => setLoadingDets(false));
- 
+            .catch(err => { if (err?.name !== "AbortError") console.error("detections:", err); })
+            .finally(() => { if (!ac.signal.aborted) setLoadingDets(false); });
+
         setLoadingBboxes(true);
         api.getBoundingBoxes(projectId, frame.id)
             .catch(() => [] as BoundingBox[])
-            .then(data => setBoundingBoxes(data))
-            .finally(() => setLoadingBboxes(false));
+            .then(data => { if (!ac.signal.aborted) setBoundingBoxes(data); })
+            .finally(() => { if (!ac.signal.aborted) setLoadingBboxes(false); });
+
+        return () => ac.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frame?.id, projectId]);
- 
+
+    // sync edit label
     useEffect(() => {
-        if (!activeDetectionId) { setEditLabel(""); return; }
-        const det = detections.find(d => d.id === activeDetectionId);
+        if (!activeId || activeType !== "det") { setEditLabel(""); return; }
+        const det = detections.find(d => d.id === activeId);
         setEditLabel(det?.display_label ?? "");
         setSaveError(null);
-    }, [activeDetectionId, detections]);
- 
-    // ── Canvas redraw ───────────────────────────────────────────────────────
-    const redraw = useCallback(() => {
-        const canvas = canvasRef.current;
-        if (!canvas || !frame) return;
-        const ctx = canvas.getContext("2d");
+    }, [activeId, activeType, detections]);
+
+    useEffect(() => {
+        const combined = [
+            ...detections,
+            ...boundingBoxes.map(b => ({ display_label: b.display_label })),
+        ];
+        setLabelColorMap(buildLabelColorMap(combined));
+    }, [detections, boundingBoxes]);
+
+    // draw loop
+    const draw = useCallback(() => {
+        const c = canvasRef.current;
+        const img = imgRef.current;
+        if (!c || !img) return;
+        const ctx = c.getContext("2d");
         if (!ctx) return;
- 
-        const img = new Image();
-        img.onload = () => {
-            const maxW = canvas.parentElement?.clientWidth ?? 800;
-            const maxH = canvas.parentElement?.clientHeight ?? 500;
-            const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
-            canvas.width = img.naturalWidth * scale;
-            canvas.height = img.naturalHeight * scale;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
- 
-            // Machine detections — solid coloured boxes with glow on active
+        const { scale, ox, oy } = tfRef.current;
+
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.fillStyle = "#f4f6fb";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, ox, oy, img.naturalWidth * scale, img.naturalHeight * scale);
+
+        if (!hideDetections) {
             detectionGroups.forEach(({ primary: d }) => {
                 const [x1, y1, x2, y2] = d.bbox;
-                const sx1 = x1 * scale, sy1 = y1 * scale;
+                const sx1 = x1 * scale + ox, sy1 = y1 * scale + oy;
                 const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
                 const color = labelColorMap.get(d.display_label || "Unknown") ?? "#888";
-                const isActive = d.id === activeDetectionId;
- 
-                if (isActive) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
+                const isActive = d.id === activeId && activeType === "det";
+                const isHov = d.id === hovId;
+                ctx.save();
+                if (isActive) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.2)")
+                        : color + "33";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                } else if (isHov) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.13)")
+                        : color + "22";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                }
                 ctx.strokeStyle = color;
-                ctx.lineWidth = isActive ? 1 : 0.5;
+                ctx.lineWidth = isActive ? 3 : isHov ? 2.8 : 1.5;
                 ctx.setLineDash([]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
-                ctx.shadowBlur = 0;
- 
-                const label = editLabel && isActive
-                    ? `${editLabel} · ${Math.round((d.score ?? 0) * 100)}%`
-                    : `${d.display_label || "Unknown"} · ${Math.round((d.score ?? 0) * 100)}%`;
-                ctx.font = "bold 11px system-ui";
+                ctx.font = "bold 11px 'DM Mono', monospace";
+                const label = `${d.display_label || "Unknown"} ${Math.round((d.score ?? 0) * 100)}%`;
                 const tw = ctx.measureText(label).width;
                 ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.roundRect(sx1, Math.max(0, sy1 - 20), tw + 10, 18, 4);
-                ctx.fill();
+                ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 8, 18);
                 ctx.fillStyle = "#fff";
-                ctx.fillText(label, sx1 + 5, sy1 - 5);
+                ctx.fillText(label, sx1 + 4, sy1 - 4);
+                ctx.restore();
             });
- 
-            // Human bboxes — dashed boxes, colour matched to species
+
             boundingBoxes.forEach(b => {
                 const [x1, y1, x2, y2] = b.bbox;
-                const sx1 = x1 * scale, sy1 = y1 * scale;
+                const sx1 = x1 * scale + ox, sy1 = y1 * scale + oy;
                 const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
-                const isActive = b.id === activeBboxId;
-
-                // Use same species color as machine detections, fallback to teal
-                const color = labelColorMap.get(b.display_label) ?? "#00b4a0";
-
-                ctx.strokeStyle = isActive ? "#fff" : color;
-                ctx.lineWidth = isActive ? 1 : 0.5;
-                ctx.setLineDash([6, 3]);          // dashed = human drawn
+                const isActive = b.id === activeId && activeType === "bbox";
+                const isHov = b.id === hovId;
+                const color = labelColorMap.get(b.display_label) ?? "#34d399";
+                ctx.save();
+                if (isActive) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.2)")
+                        : color + "33";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                } else if (isHov) {
+                    ctx.fillStyle = color.startsWith("hsl")
+                        ? color.replace("hsl(", "hsla(").replace(")", ", 0.13)")
+                        : color + "22";
+                    ctx.fillRect(sx1, sy1, sw, sh);
+                }
+                ctx.strokeStyle = color;
+                ctx.lineWidth = isActive ? 3 : isHov ? 2.8 : 1.5;
+                ctx.setLineDash([6, 3]);
                 ctx.strokeRect(sx1, sy1, sw, sh);
                 ctx.setLineDash([]);
-                ctx.font = "bold 11px system-ui";
+                ctx.font = "bold 11px 'DM Mono', monospace";
                 const tw = ctx.measureText(b.display_label).width;
                 ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.roundRect(sx1, Math.max(0, sy1 - 20), tw + 10, 18, 4);
-                ctx.fill();
+                ctx.fillRect(sx1, Math.max(0, sy1 - 18), tw + 8, 18);
                 ctx.fillStyle = "#fff";
-                ctx.fillText(b.display_label, sx1 + 5, sy1 - 5);
+                ctx.fillText(b.display_label, sx1 + 4, sy1 - 4);
+                ctx.restore();
             });
- 
-            // In-progress drag rect
-            if (isDrawing && drawStart.current && drawCurrent.current) {
-                const { x: sx, y: sy } = drawStart.current;
-                const { x: ex, y: ey } = drawCurrent.current;
-                ctx.strokeStyle = "#fff";
-                ctx.lineWidth = 0.5;
-                ctx.setLineDash([4, 3]);
-                ctx.strokeRect(sx, sy, ex - sx, ey - sy);
-                ctx.setLineDash([]);
+        }
+
+        // live drag preview — refs, always current
+        if (drawStartRef.current && drawCurRef.current) {
+            const { scale: s, ox: ox2, oy: oy2 } = tfRef.current;
+            const sx = drawStartRef.current.ix * s + ox2;
+            const sy = drawStartRef.current.iy * s + oy2;
+            const ex = drawCurRef.current.ix * s + ox2;
+            const ey = drawCurRef.current.iy * s + oy2;
+            ctx.save();
+            ctx.strokeStyle = "#4a6fc4";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 3]);
+            ctx.strokeRect(Math.min(sx, ex), Math.min(sy, ey), Math.abs(ex - sx), Math.abs(ey - sy));
+            ctx.fillStyle = "rgba(74, 111, 196, 0.1)";
+            ctx.fillRect(Math.min(sx, ex), Math.min(sy, ey), Math.abs(ex - sx), Math.abs(ey - sy));
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
+        // pending box — stays on canvas while label popup is open
+        if (pendingBox) {
+            const { scale: s, ox: ox2, oy: oy2 } = tfRef.current;
+            const sx = pendingBox.x1 * s + ox2;
+            const sy = pendingBox.y1 * s + oy2;
+            const w = (pendingBox.x2 - pendingBox.x1) * s;
+            const h = (pendingBox.y2 - pendingBox.y1) * s;
+            ctx.save();
+            ctx.strokeStyle = "#4a6fc4";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 3]);
+            ctx.strokeRect(sx, sy, w, h);
+            ctx.fillStyle = "rgba(74, 111, 196, 0.1)";
+            ctx.fillRect(sx, sy, w, h);
+            ctx.setLineDash([]);
+            // label tag
+            const tag = labelInput || "New box";
+            ctx.font = "bold 11px 'DM Mono', monospace";
+            const tw = ctx.measureText(tag).width;
+            ctx.fillStyle = "#4a6fc4";
+            ctx.fillRect(sx, Math.max(0, sy - 18), tw + 8, 18);
+            ctx.fillStyle = "#fff";
+            ctx.fillText(tag, sx + 4, sy - 4);
+            ctx.restore();
+        }
+    }, [detectionGroups, boundingBoxes, labelColorMap, activeId, activeType, hovId, hideDetections, tf, pendingBox, labelInput]);
+
+    const drawRef = useRef(draw);
+    drawRef.current = draw;
+
+    useEffect(() => {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(draw);
+    }, [draw]);
+
+    // keyboard shortcuts
+    useEffect(() => {
+        function onKey(e: KeyboardEvent) {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            if ((e.key === "Delete" || e.key === "Backspace") && activeId && activeType === "bbox") handleDeleteBbox(activeId);
+            if (e.key === "Escape") { setActiveId(null); setActiveType(null); setPendingBox(null); setMode("select"); }
+            if (e.key === "h" || e.key === "H") setHideDetections(v => !v);
+            if (e.key === "d" || e.key === "D") { setMode("draw"); setPendingBox(null); }
+            if (e.key === "s" || e.key === "S") setMode("select");
+            if (e.key === "ArrowLeft") goToFrame(Math.max(0, activeFrameIndex - 1));
+            if (e.key === "ArrowRight") goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1));
+        }
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeId, activeType, activeFrameIndex, frames.length]);
+
+    // "Saved · Xs ago" toast — tick every second while visible, clear after 10s
+    useEffect(() => {
+        if (savedAt === null) return;
+        const interval = setInterval(() => {
+            if (Date.now() - savedAt >= 10000) {
+                setSavedAt(null);
+            } else {
+                setToastTick(t => t + 1);
             }
-        };
-        img.src = frame.frame_url;
-    }, [frame, detectionGroups, boundingBoxes, activeDetectionId, activeBboxId, labelColorMap, editLabel, isDrawing]);
- 
-    useEffect(() => { redraw(); }, [redraw]);
- 
-    // ── Canvas pointer helpers ──────────────────────────────────────────────
-    function canvasCoords(e: React.MouseEvent<HTMLCanvasElement>) {
-        const canvas = canvasRef.current!;
-        const rect = canvas.getBoundingClientRect();
-        return {
-            x: (e.clientX - rect.left) * (canvas.width / rect.width),
-            y: (e.clientY - rect.top) * (canvas.height / rect.height),
-        };
-    }
- 
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [savedAt]);
+
+    // mouse handlers
     function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (!drawMode) return;
-        const pos = canvasCoords(e);
-        drawStart.current = pos;
-        drawCurrent.current = pos;
-        setIsDrawing(true);
+        if (e.button !== 0) return;
+        const { cx, cy } = clientToCanvas(e);
+        if (mode === "draw") {
+            const { ix, iy } = toImg(cx, cy);
+            drawStartRef.current = { ix, iy };
+            drawCurRef.current = { ix, iy };
+            return;
+        }
+        const allBoxes = [
+            ...(!hideDetections ? detectionGroups.map(g => ({ id: g.primary.id, type: "det" as const, box: g.primary.bbox })) : []),
+            ...(!hideDetections ? boundingBoxes.map(b => ({ id: b.id, type: "bbox" as const, box: b.bbox })) : []),
+        ];
+        if (activeId) {
+            const active = allBoxes.find(b => b.id === activeId);
+            if (active) {
+                const corner = cornerHit(cx, cy, active.box);
+                if (corner) {
+                    resizeRef.current = { id: active.id, type: active.type, corner, sx: cx, sy: cy, ob: [...active.box] };
+                    return;
+                }
+            }
+        }
+        for (const b of [...allBoxes].reverse()) {
+            if (inBox(cx, cy, b.box)) {
+                dragRef.current = { id: b.id, type: b.type, sx: cx, sy: cy, ob: [...b.box], moved: false };
+                setActiveId(b.id);
+                setActiveType(b.type);
+                return;
+            }
+        }
+        panRef.current = { startCx: cx, startCy: cy, startOx: tfRef.current.ox, startOy: tfRef.current.oy };
+        setIsPanning(true);
+        setActiveId(null);
+        setActiveType(null);
     }
- 
+
     function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (!isDrawing || !drawMode) return;
-        drawCurrent.current = canvasCoords(e);
-        redraw();
+        const { cx, cy } = clientToCanvas(e);
+        if (mode === "draw" && drawStartRef.current) {
+            const { ix, iy } = toImg(cx, cy);
+            drawCurRef.current = { ix, iy };
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = requestAnimationFrame(() => drawRef.current());
+            return;
+        }
+        if (resizeRef.current) {
+            const r = resizeRef.current;
+            const dix = (cx - r.sx) / tfRef.current.scale;
+            const diy = (cy - r.sy) / tfRef.current.scale;
+            let [x1, y1, x2, y2] = r.ob;
+            if (r.corner === "tl") { x1 += dix; y1 += diy; }
+            else if (r.corner === "tr") { x2 += dix; y1 += diy; }
+            else if (r.corner === "bl") { x1 += dix; y2 += diy; }
+            else { x2 += dix; y2 += diy; }
+            updateBoxLocal(r.id, r.type, [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]);
+            return;
+        }
+        if (dragRef.current) {
+            const d = dragRef.current;
+            if (Math.abs(cx - d.sx) > 3 || Math.abs(cy - d.sy) > 3) d.moved = true;
+            if (d.moved) {
+                const dix = (cx - d.sx) / tfRef.current.scale;
+                const diy = (cy - d.sy) / tfRef.current.scale;
+                const [x1, y1, x2, y2] = d.ob;
+                const w = x2 - x1, h = y2 - y1;
+                updateBoxLocal(d.id, d.type, [x1 + dix, y1 + diy, x1 + dix + w, y1 + diy + h]);
+            }
+            return;
+        }
+        if (panRef.current) {
+            const p = panRef.current;
+            const newTf = { ...tfRef.current, ox: p.startOx + (cx - p.startCx), oy: p.startOy + (cy - p.startCy) };
+            setTf(newTf);
+            tfRef.current = newTf;
+            return;
+        }
+        const { ix, iy } = toImg(cx, cy);
+        let found: string | null = null;
+        if (!hideDetections) {
+            for (const b of [...boundingBoxes].reverse()) {
+                const [x1, y1, x2, y2] = b.bbox;
+                if (ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2) { found = b.id; break; }
+            }
+            if (!found) for (const { primary: d } of [...detectionGroups].reverse()) {
+                const [x1, y1, x2, y2] = d.bbox;
+                if (ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2) { found = d.id; break; }
+            }
+        }
+        setHovId(found);
     }
- 
+
     function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (!isDrawing || !drawMode || !drawStart.current) return;
-        const { x: ex, y: ey } = canvasCoords(e);
-        const { x: sx, y: sy } = drawStart.current;
-        setIsDrawing(false);
-        drawStart.current = null;
-        if (Math.abs(ex - sx) < 10 || Math.abs(ey - sy) < 10) return;
-        setPendingBox({
-            x1: Math.min(sx, ex), y1: Math.min(sy, ey),
-            x2: Math.max(sx, ex), y2: Math.max(sy, ey),
-        });
-        setLabelInput("");
+        if (drawStartRef.current) {
+            const { cx, cy } = clientToCanvas(e);
+            const { ix: ex, iy: ey } = toImg(cx, cy);
+            const { ix: sx, iy: sy } = drawStartRef.current;
+            drawStartRef.current = null;
+            drawCurRef.current = null;
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = requestAnimationFrame(() => drawRef.current());
+            if (Math.abs(ex - sx) > 3 || Math.abs(ey - sy) > 3) {
+                setPendingBox({ x1: Math.min(sx, ex), y1: Math.min(sy, ey), x2: Math.max(sx, ex), y2: Math.max(sy, ey) });
+                setLabelInput("Unknown");
+            }
+            return;
+        }
+        if (resizeRef.current) {
+            const r = resizeRef.current;
+            const { cx, cy } = clientToCanvas(e);
+            const dix = (cx - r.sx) / tfRef.current.scale;
+            const diy = (cy - r.sy) / tfRef.current.scale;
+            let [x1, y1, x2, y2] = r.ob;
+            if (r.corner === "tl") { x1 += dix; y1 += diy; }
+            else if (r.corner === "tr") { x2 += dix; y1 += diy; }
+            else if (r.corner === "bl") { x1 += dix; y2 += diy; }
+            else { x2 += dix; y2 += diy; }
+            markBoxEdited(r.id, r.type, [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)]);
+            resizeRef.current = null;
+        }
+        if (dragRef.current) {
+            if (dragRef.current.moved) {
+                const d = dragRef.current;
+                const { cx, cy } = clientToCanvas(e);
+                const dix = (cx - d.sx) / tfRef.current.scale;
+                const diy = (cy - d.sy) / tfRef.current.scale;
+                const [x1, y1, x2, y2] = d.ob;
+                const w = x2 - x1, h = y2 - y1;
+                markBoxEdited(d.id, d.type, [x1 + dix, y1 + diy, x1 + dix + w, y1 + diy + h]);
+            }
+            dragRef.current = null;
+        }
+        panRef.current = null;
+        setIsPanning(false);
     }
- 
-    function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-        if (drawMode) return;
-        const canvas = canvasRef.current!;
-        const { x: mx, y: my } = canvasCoords(e);
-        const scale = canvas.width / (frame?.natural_width ?? canvas.width);
- 
-        // Check human bboxes first
-        for (const b of [...boundingBoxes].reverse()) {
-            const [x1, y1, x2, y2] = b.bbox;
-            if (mx >= x1 * scale && mx <= x2 * scale && my >= y1 * scale && my <= y2 * scale) {
-                setActiveBboxId(b.id === activeBboxId ? null : b.id);
-                setActiveDetectionId(null);
-                return;
+
+    function updateBoxLocal(id: string, type: "det" | "bbox", newBox: number[]) {
+        if (type === "bbox") setBoundingBoxes(prev => prev.map(b => b.id === id ? { ...b, bbox: newBox as [number, number, number, number] } : b));
+        else setDetections(prev => prev.map(d => d.id === id ? { ...d, bbox: newBox } : d));
+    }
+
+    function recordSave() {
+        setSavedAt(Date.now());
+    }
+
+    async function commitDetectionLabel(id: string, newLabel: string, originalLabel: string) {
+        const trimmed = newLabel.trim() || originalLabel;
+        setDetections(prev => prev.map(d =>
+            d.id === id ? { ...d, display_label: trimmed, status: "reviewed" } : d
+        ));
+        if (trimmed !== originalLabel) {
+            setEditedIds(prev => new Set([...prev, id]));
+        }
+        setPendingLabels(prev => { const next = new Map(prev); next.delete(id); return next; });
+        setEditingDetectionId(null);
+        try {
+            await api.reviewDetectionLabel(id, trimmed);
+            recordSave();
+        } catch (err: any) {
+            setSaveError(err?.message ?? "Failed to save label");
+        }
+    }
+
+    async function commitBboxLabel(id: string, newLabel: string, originalLabel: string) {
+        const trimmed = newLabel.trim() || originalLabel;
+        setBoundingBoxes(prev => prev.map(b => b.id === id ? { ...b, display_label: trimmed } : b));
+        if (trimmed !== originalLabel) {
+            setEditedIds(prev => new Set([...prev, id]));
+        }
+        setPendingLabels(prev => { const next = new Map(prev); next.delete(id); return next; });
+        setEditingDetectionId(null);
+        if (!frame) return;
+        try {
+            await api.updateBoundingBox(projectId, frame.id, id, { display_label: trimmed });
+            recordSave();
+        } catch (err: any) {
+            setSaveError(err?.message ?? "Failed to save label");
+        }
+    }
+
+    async function markBoxEdited(id: string, type: "det" | "bbox", finalBox: number[]) {
+        setEditedIds(prev => new Set([...prev, id]));
+        if (type === "det") {
+            setDetections(prev => prev.map(d =>
+                d.id === id ? { ...d, status: "reviewed" } : d
+            ));
+            // TODO: wire updateDetection(id, { status: "reviewed", bbox: finalBox }) — no patch endpoint yet
+            recordSave();
+        } else {
+            if (!frame) return;
+            try {
+                await api.updateBoundingBox(projectId, frame.id, id, {
+                    bbox: finalBox.map(Math.round) as [number, number, number, number],
+                });
+                recordSave();
+            } catch (err: any) {
+                setSaveError(err?.message ?? "Failed to save bbox");
             }
         }
- 
-        // Then machine detections
-        for (const d of [...detections].reverse()) {
-            const [x1, y1, x2, y2] = d.bbox;
-            if (mx >= x1 * scale && mx <= x2 * scale && my >= y1 * scale && my <= y2 * scale) {
-                setActiveDetectionId(d.id === activeDetectionId ? null : d.id);
-                setActiveBboxId(null);
-                return;
-            }
-        }
- 
-        setActiveDetectionId(null);
-        setActiveBboxId(null);
     }
- 
-    // ── Save pending bbox ───────────────────────────────────────────────────
+
+    async function handleBulkMarkCorrect() {
+        const unreviewedDets = detectionGroups
+            .filter(({ primary: d }) => d.status === "needs_review")
+            .map(({ primary: d }) => ({ id: d.id, label: d.display_label ?? "" }));
+
+        setSavingReview(true);
+        setSaveError(null);
+        try {
+            // Mark remaining unreviewed as correct — optimistic state update first
+            setDetections(prev => prev.map(d =>
+                unreviewedDets.some(u => u.id === d.id) ? { ...d, status: "reviewed" } : d
+            ));
+            setPendingLabels(new Map());
+            // Persist each newly-reviewed detection
+            await Promise.all(unreviewedDets.map(({ id, label }) =>
+                api.reviewDetectionLabel(id, label)
+            ));
+            recordSave();
+        } catch (err: any) {
+            setSaveError(err.message ?? "Failed to save");
+        } finally {
+            setSavingReview(false);
+        }
+    }
+
     async function handleSaveBbox() {
         if (!pendingBox || !labelInput.trim() || !frame) return;
-        const canvas = canvasRef.current!;
-        const img = new Image();
-        img.src = frame.frame_url;
-        const scale = canvas.width / (img.naturalWidth || canvas.width);
- 
         setSavingBbox(true);
         try {
             const created = await api.createBoundingBox(projectId, frame.id, {
-                bbox: [
-                    Math.round(pendingBox.x1 / scale),
-                    Math.round(pendingBox.y1 / scale),
-                    Math.round(pendingBox.x2 / scale),
-                    Math.round(pendingBox.y2 / scale),
-                ],
+                bbox: [Math.round(pendingBox.x1), Math.round(pendingBox.y1), Math.round(pendingBox.x2), Math.round(pendingBox.y2)],
                 display_label: labelInput.trim(),
             });
             setBoundingBoxes(prev => [...prev, created]);
             setPendingBox(null);
-            setDrawMode(false);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setSavingBbox(false);
-        }
+            setMode("select");
+        } catch (err) { console.error(err); }
+        finally { setSavingBbox(false); }
     }
- 
-    // ── Delete human bbox ───────────────────────────────────────────────────
+
     async function handleDeleteBbox(bboxId: string) {
         if (!frame) return;
         try {
             await api.deleteBoundingBox(projectId, frame.id, bboxId);
             setBoundingBoxes(prev => prev.filter(b => b.id !== bboxId));
-            if (activeBboxId === bboxId) setActiveBboxId(null);
-        } catch (err) {
-            console.error(err);
-        }
+            if (activeId === bboxId) { setActiveId(null); setActiveType(null); }
+        } catch (err) { console.error(err); }
     }
- 
-    // ── Approve machine detection ───────────────────────────────────────────
+
     async function handleApprove() {
-        if (!activeDetectionId || !editLabel.trim()) return;
-        setSaving(true);
-        setSaveError(null);
+        if (!activeId || activeType !== "det" || !editLabel.trim()) return;
+        setSaving(true); setSaveError(null);
         try {
-            await api.reviewDetectionLabel(activeDetectionId, editLabel.trim());
-            setDetections(prev => prev.map(d =>
-                d.id === activeDetectionId
-                    ? { ...d, display_label: editLabel.trim(), status: "reviewed" }
-                    : d
-            ));
-            setActiveDetectionId(null);
-        } catch (err: any) {
-            setSaveError(err.message ?? "Failed to save");
-        } finally {
-            setSaving(false);
-        }
+            await api.reviewDetectionLabel(activeId, editLabel.trim());
+            setDetections(prev => prev.map(d => d.id === activeId ? { ...d, display_label: editLabel.trim(), status: "reviewed" } : d));
+            setActiveId(null); setActiveType(null);
+        } catch (err: any) { setSaveError(err.message ?? "Failed to save"); }
+        finally { setSaving(false); }
     }
- 
+
     function goToFrame(i: number) {
         setActiveFrameIndex(i);
         onFrameChange(i);
     }
- 
-    const activeDetection = detections.find(d => d.id === activeDetectionId);
-    const activeBbox = boundingBoxes.find(b => b.id === activeBboxId);
- 
+
+
+
+    async function handleDeleteDetection(detectionId: string) {
+        try {
+            await api.deleteDetection(detectionId);
+            setDetections(prev => prev.filter(d => d.id !== detectionId));
+            if (activeId === detectionId) { setActiveId(null); setActiveType(null); }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    const cursor = isPanning ? "grabbing" : mode === "draw" ? "crosshair" : hovId ? "pointer" : "default";
+    const zoomPct = Math.round(zoomLevel * 100);
+    const activeDet = detections.find(d => d.id === activeId && activeType === "det");
+
     return (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gridTemplateRows: "1fr 90px", height: "calc(100vh - 230px)", gap: 12, padding: "16px 24px" }}>
- 
-            {/* CANVAS VIEWER */}
-            <div style={{ background: "#0a1628", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
-                <canvas
-                    ref={canvasRef}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onClick={handleCanvasClick}
-                    style={{ maxWidth: "100%", maxHeight: "100%", cursor: drawMode ? "crosshair" : "default" }}
-                />
- 
-                {/* Back button */}
-                <button onClick={onBack} style={{ position: "absolute", top: 12, left: 12, padding: "6px 12px", borderRadius: 8, background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600, backdropFilter: "blur(4px)", display: "flex", alignItems: "center", gap: 6 }}>
-                    ← All frames
-                </button>
- 
-                {/* Draw mode badge */}
-                {drawMode && (
-                    <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(0,180,160,0.18)", border: "1px solid rgba(0,180,160,0.4)", color: "#00b4a0", fontSize: 12, fontWeight: 700, padding: "4px 14px", borderRadius: 20, letterSpacing: "0.05em" }}>
-                        DRAW MODE · drag to place box
+        <div className={styles.annotateShell}>
+            {/* Header */}
+            <div className={styles.annotateHeader}>
+                <div className={styles.annotateHeaderLeft}>
+                    <span className={styles.annotateTitle}>{project.name}</span>
+                    <div className={styles.annotateFrameBadge}>
+                        <span className={styles.annotateFrameBadgeCurrent}>{activeFrameIndex + 1}</span>
+                        <span className={styles.annotateFrameBadgeSep}>/</span>
+                        <span className={styles.annotateFrameBadgeTotal}>{frames.length}</span>
                     </div>
-                )}
- 
-                {/* Species label popover */}
-                {pendingBox && (
-                    <div style={{ position: "absolute", top: pendingBox.y2 + 10, left: pendingBox.x1, background: "#0d1e30", border: "1px solid rgba(0,180,160,0.4)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minWidth: 220, zIndex: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Species label</div>
-                        <input
-                            autoFocus
-                            value={labelInput}
-                            onChange={e => setLabelInput(e.target.value)}
-                            onKeyDown={e => {
-                                if (e.key === "Enter") handleSaveBbox();
-                                if (e.key === "Escape") { setPendingBox(null); setDrawMode(false); }
-                            }}
-                            placeholder="e.g. fish, hard coral…"
-                            style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 7, padding: "8px 10px", color: "#fff", fontSize: 13, outline: "none", fontFamily: "inherit" }}
-                        />
-                        <div style={{ display: "flex", gap: 8 }}>
-                            <button onClick={handleSaveBbox} disabled={!labelInput.trim() || savingBbox}
-                                style={{ flex: 1, padding: "7px", borderRadius: 7, fontSize: 12, fontWeight: 700, background: "rgba(0,180,160,0.2)", border: "1px solid rgba(0,180,160,0.4)", color: "#00b4a0", cursor: "pointer", opacity: !labelInput.trim() || savingBbox ? 0.5 : 1 }}>
-                                {savingBbox ? "Saving…" : "✓ Save"}
-                            </button>
-                            <button onClick={() => { setPendingBox(null); setDrawMode(false); }}
-                                style={{ flex: 1, padding: "7px", borderRadius: 7, fontSize: 12, fontWeight: 700, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", cursor: "pointer" }}>
-                                ✕ Cancel
-                            </button>
-                        </div>
-                    </div>
-                )}
- 
-                {/* Prev / Next */}
-                <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, alignItems: "center" }}>
-                    <button onClick={() => goToFrame(Math.max(0, activeFrameIndex - 1))} disabled={activeFrameIndex === 0}
-                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: activeFrameIndex === 0 ? 0.4 : 1 }}>
-                        ← Prev
-                    </button>
-                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>
-                        Photo {activeFrameIndex + 1} of {frames.length}
-                    </span>
-                    <button onClick={() => goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1))} disabled={activeFrameIndex === frames.length - 1}
-                        style={{ padding: "6px 14px", borderRadius: 8, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: activeFrameIndex === frames.length - 1 ? 0.4 : 1 }}>
-                        Next →
-                    </button>
                 </div>
-                <div style={{ position: "absolute", bottom: 16, right: 16, fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: 500 }}>
-                    {drawMode ? "Drag to draw · ESC to cancel" : "Click detection to select · or draw new bbox"}
-                </div>
-            </div>
- 
-            {/* SIDEBAR */}
-            <div style={{ background: "#0d1e30", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8, overflow: "hidden" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, display: "flex", justifyContent: "space-between", flexShrink: 0 }}>
-                    <span>Detections</span>
-                    <span style={{ color: "#3b9eff" }}>{detectionGroups.length + boundingBoxes.length} in photo</span>
-                </div>
- 
-                <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
- 
-                    {/* Machine detections */}
-                    {loadingDets ? (
-                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textAlign: "center", paddingTop: 20 }}>Loading…</div>
-                    ) : detectionGroups.map(({ primary: d, overlapping }) => (
-                        <div key={d.id}>
-                            <div
-                                onClick={() => { setActiveDetectionId(d.id === activeDetectionId ? null : d.id); setActiveBboxId(null); }}
-                                style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer", transition: "background 0.15s", background: d.id === activeDetectionId ? "rgba(59,158,255,0.12)" : "transparent", border: `1px solid ${d.id === activeDetectionId ? "rgba(59,158,255,0.3)" : "transparent"}` }}
-                            >
-                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: labelColorMap.get(d.display_label || "Unknown") ?? "#888", flexShrink: 0 }} />
-                                <span style={{ flex: 1, fontSize: 13, color: "#fff", fontWeight: d.id === activeDetectionId ? 600 : 400 }}>{d.display_label || "Unknown"}</span>
-                                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>{Math.round((d.score ?? 0) * 100)}%</span>
-                            </div>
-                            {overlapping.map(alt => (
-                                <div key={alt.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px 5px 28px", opacity: 0.6 }}>
-                                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: labelColorMap.get(alt.display_label || "Unknown") ?? "#888", flexShrink: 0 }} />
-                                    <span style={{ flex: 1, fontSize: 12, color: "rgba(255,255,255,0.6)" }}>{alt.display_label || "Unknown"}</span>
-                                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{Math.round((alt.score ?? 0) * 100)}%</span>
-                                </div>
-                            ))}
-                        </div>
-                    ))}
- 
-                    {/* Human bboxes */}
-                    {loadingBboxes ? (
-                        <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, textAlign: "center" }}>Loading annotations…</div>
-                    ) : boundingBoxes.map(b => (
-                        <div key={b.id} onClick={() => { setActiveBboxId(b.id === activeBboxId ? null : b.id); setActiveDetectionId(null); }}
-                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer", transition: "background 0.15s", background: b.id === activeBboxId ? "rgba(0,180,160,0.12)" : "transparent", border: `1px solid ${b.id === activeBboxId ? "rgba(0,180,160,0.3)" : "rgba(0,180,160,0.1)"}` }}>
-                            <div style={{ width: 10, height: 10, borderRadius: "50%", border: "2px dashed #00b4a0", flexShrink: 0 }} />
-                            <span style={{ flex: 1, fontSize: 13, color: "#fff", fontWeight: b.id === activeBboxId ? 600 : 400 }}>{b.display_label}</span>
-                            <span style={{ fontSize: 10, color: "#00b4a0", fontWeight: 700, marginRight: 4 }}>human</span>
-                            <button onClick={e => { e.stopPropagation(); handleDeleteBbox(b.id); }}
-                                style={{ background: "none", border: "none", color: "rgba(232,97,58,0.5)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "2px 4px" }}>✕</button>
-                        </div>
-                    ))}
- 
-                    {/* Draw new bbox button */}
-                    <button onClick={() => { setDrawMode(m => !m); setPendingBox(null); }}
-                        style={{ marginTop: 4, padding: "8px 10px", borderRadius: 8, background: drawMode ? "rgba(0,180,160,0.15)" : "transparent", border: drawMode ? "1px solid rgba(0,180,160,0.4)" : "1px dashed rgba(255,255,255,0.15)", color: drawMode ? "#00b4a0" : "rgba(255,255,255,0.4)", fontSize: 13, cursor: "pointer", fontWeight: 700, textAlign: "left", transition: "all 0.15s" }}>
-                        {drawMode ? "✕ Cancel draw mode" : "+ Draw new bounding box"}
-                    </button>
-                </div>
- 
-                {/* Active machine detection panel */}
-                {activeDetection && (
-                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span>Edit Label</span>
-                            <span style={{ background: activeDetection.status === "reviewed" ? "rgba(0,180,160,0.15)" : "rgba(255,180,0,0.1)", color: activeDetection.status === "reviewed" ? "#00b4a0" : "#ffb400", border: `1px solid ${activeDetection.status === "reviewed" ? "rgba(0,180,160,0.3)" : "rgba(255,180,0,0.25)"}`, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>
-                                {activeDetection.status === "reviewed" ? "Reviewed" : "Needs review"}
-                            </span>
-                        </div>
-                        <div style={{ background: "rgba(59,158,255,0.08)", border: "1px solid rgba(59,158,255,0.2)", borderRadius: 8, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 500 }}>Original</span>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.7)" }}>{activeDetection.display_label || "Unknown"}</span>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>New Label</div>
-                            <input type="text" value={editLabel} onChange={e => setEditLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleApprove(); }} placeholder="e.g. fish, sea turtle..."
-                                style={{ width: "100%", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontWeight: 500, color: "#0d1f2d", outline: "none", boxSizing: "border-box" }} />
-                        </div>
-                        {saveError && (
-                            <div style={{ fontSize: 12, color: "#e8613a", background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", borderRadius: 6, padding: "6px 10px" }}>{saveError}</div>
-                        )}
-                        <div style={{ display: "flex", gap: 8 }}>
-                            <button onClick={handleApprove} disabled={saving || !editLabel.trim()}
-                                style={{ flex: 1, padding: "9px 8px", borderRadius: 8, background: saving || !editLabel.trim() ? "rgba(0,180,160,0.07)" : "rgba(0,180,160,0.15)", border: "1px solid rgba(0,180,160,0.3)", color: saving || !editLabel.trim() ? "rgba(0,180,160,0.4)" : "#00b4a0", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", transition: "all 0.15s" }}>
-                                {saving ? "Saving…" : "✓ Save"}
-                            </button>
-                            <button onClick={() => setActiveDetectionId(null)} disabled={saving}
-                                style={{ flex: 1, padding: "9px 8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                                ✕ Cancel
-                            </button>
-                        </div>
-                    </div>
-                )}
- 
-                {/* Active human bbox panel */}
-                {activeBbox && (
-                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Manual annotation</div>
-                        <div style={{ background: "rgba(0,180,160,0.1)", border: "1px solid rgba(0,180,160,0.2)", borderRadius: 8, padding: "8px 12px" }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{activeBbox.display_label}</span>
-                            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 3 }}>
-                                [{activeBbox.bbox.map(v => Math.round(v)).join(", ")}] px
-                            </div>
-                        </div>
-                        <button onClick={() => handleDeleteBbox(activeBbox.id)}
-                            style={{ width: "100%", padding: "8px", borderRadius: 8, background: "rgba(232,97,58,0.1)", border: "1px solid rgba(232,97,58,0.25)", color: "#e8613a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                            🗑 Delete box
+                <div className={styles.annotateHeaderRight}>
+                    <div className={styles.viewSwitch}>
+                        <button onClick={onBack} className={styles.viewSwitchBtn}>
+                            <LayoutGrid size={13} />
+                            Grid
+                        </button>
+                        <button className={`${styles.viewSwitchBtn} ${styles.viewSwitchBtnSingle} ${styles.viewSwitchBtnActive}`}>
+                            <Tag size={13} />
+                            Single
                         </button>
                     </div>
-                )}
+                </div>
             </div>
- 
-            {/* FILMSTRIP */}
-            <div style={{ gridColumn: "1 / span 2", display: "flex", gap: 8, overflowX: "auto", alignItems: "center", paddingBottom: 4 }}>
-                {frames.map((f, i) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={f.id} src={f.frame_url} alt={`Frame ${i + 1}`} onClick={() => goToFrame(i)}
-                        style={{ height: 68, minWidth: 110, objectFit: "cover", borderRadius: 6, cursor: "pointer", opacity: i === activeFrameIndex ? 1 : 0.45, border: i === activeFrameIndex ? "2px solid #00b4a0" : "2px solid transparent", transition: "all 0.15s", flexShrink: 0 }} />
-                ))}
+
+            {/* Body: canvas | panel */}
+            <div className={styles.annotateBody}>
+                {/* Canvas */}
+                <div ref={containerRef} className={styles.annotateCanvasWrap}>
+                    <canvas
+                        ref={canvasRef}
+                        className={styles.annotationCanvas}
+                        style={{ cursor }}
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={() => {
+                            setHovId(null);
+                            if (!drawStartRef.current) {
+                                panRef.current = null; setIsPanning(false);
+                                dragRef.current = null; resizeRef.current = null;
+                            }
+                        }}
+                    />
+
+                    {mode === "draw" && !pendingBox && (
+                        <div className={styles.drawModeToast}>Drag to draw a bounding box · Esc to cancel</div>
+                    )}
+
+                    {pendingBox && (
+                        <div className={styles.pendingBoxPopup}>
+                            <div className={styles.pendingBoxLabel}>Label new box</div>
+                            <input
+                                autoFocus
+                                value={labelInput}
+                                onChange={e => setLabelInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter") handleSaveBbox(); if (e.key === "Escape") setPendingBox(null); }}
+                                placeholder="e.g. Lutjanus"
+                                className={styles.pendingBoxInput}
+                            />
+                            <div className={styles.pendingBoxActions}>
+                                <button onClick={() => setPendingBox(null)} className={styles.annotateBtnGhost}>Cancel</button>
+                                <button onClick={handleSaveBbox} disabled={savingBbox || !labelInput.trim()} className={styles.annotateBtnPrimary}>
+                                    {savingBbox ? "Saving…" : "Save"}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Floating toolbar */}
+                    <div className={styles.annotateToolbar}>
+                        <button onClick={() => setMode("select")} className={`${styles.annotateTool} ${mode === "select" ? styles.annotateToolActive : ""}`} title="Select / Move (S)">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M2 2l5 10 1.5-3.5L12 7 2 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                            </svg>
+                        </button>
+                        <button onClick={() => { setMode("draw"); setPendingBox(null); }} className={`${styles.annotateTool} ${mode === "draw" ? styles.annotateToolActive : ""}`} title="Draw box (D)">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <rect x="2" y="2" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.4" strokeDasharray="2.5 1.5" />
+                                <line x1="7" y1="4.5" x2="7" y2="9.5" stroke="currentColor" strokeWidth="1.2" />
+                                <line x1="4.5" y1="7" x2="9.5" y2="7" stroke="currentColor" strokeWidth="1.2" />
+                            </svg>
+                        </button>
+                        <button onClick={() => setHideDetections(v => !v)} className={`${styles.annotateTool} ${hideDetections ? styles.annotateToolActive : ""}`} title="Hide detections (H)">
+                            {hideDetections ? (
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                    <line x1="1.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                                    <path d="M4 4.5C2.5 5.5 1.5 7 1.5 7S3.5 11 7 11c1 0 1.9-.3 2.7-.7M6 3.1C6.3 3 6.6 3 7 3c3.5 0 5.5 4 5.5 4-.4.7-.9 1.4-1.5 1.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                                </svg>
+                            ) : (
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                    <path d="M1.5 7S3.5 3 7 3s5.5 4 5.5 4-2 4-5.5 4S1.5 7 1.5 7z" stroke="currentColor" strokeWidth="1.3" />
+                                    <circle cx="7" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+                                </svg>
+                            )}
+                        </button>
+
+                        <span className={styles.annotateToolSep} />
+
+                        <button onClick={zoomOut} disabled={zoomLevel <= 0.11} className={styles.annotateTool} title="Zoom out">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="4" y1="6" x2="8" y2="6" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="9" y1="9" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                            </svg>
+                        </button>
+                        <button onClick={zoomReset} className={`${styles.annotateTool} ${styles.annotateToolZoomPct}`} title="Reset zoom">{zoomPct}%</button>
+                        <button onClick={zoomIn} disabled={zoomLevel >= 19.9} className={styles.annotateTool} title="Zoom in">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="6" y1="4" x2="6" y2="8" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="4" y1="6" x2="8" y2="6" stroke="currentColor" strokeWidth="1.3" />
+                                <line x1="9" y1="9" x2="12.5" y2="12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                            </svg>
+                        </button>
+
+                        <span className={styles.annotateToolSep} />
+
+                        <button onClick={() => goToFrame(Math.max(0, activeFrameIndex - 1))} disabled={activeFrameIndex === 0} className={styles.annotateTool} title="Previous frame (←)">
+                            <SkipBack size={13} />
+                        </button>
+                        <span className={styles.annotateToolCounter}>{activeFrameIndex + 1} / {frames.length}</span>
+                        <button onClick={() => goToFrame(Math.min(frames.length - 1, activeFrameIndex + 1))} disabled={activeFrameIndex === frames.length - 1} className={styles.annotateTool} title="Next frame (→)">
+                            <ChevronRight size={13} />
+                        </button>
+
+                        {activeId && (activeType === "bbox" || activeType === "det") && (
+                            <>
+                                <span className={styles.annotateToolSep} />
+                                <button
+                                    onClick={() => {
+                                        if (!activeId) return;
+                                        if (activeType === "bbox") handleDeleteBbox(activeId);
+                                        else handleDeleteDetection(activeId);
+                                    }}
+                                    className={`${styles.annotateTool} ${styles.annotateToolDanger}`}
+                                    title="Delete selected (Del)"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                        <polyline points="2,4 12,4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                                        <path d="M5 4V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.3" />
+                                        <rect x="3" y="4" width="8" height="7" rx="1" stroke="currentColor" strokeWidth="1.3" />
+                                        <line x1="5.5" y1="6.5" x2="5.5" y2="9.5" stroke="currentColor" strokeWidth="1.2" />
+                                        <line x1="8.5" y1="6.5" x2="8.5" y2="9.5" stroke="currentColor" strokeWidth="1.2" />
+                                    </svg>
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* Sidebar */}
+                <div
+                    style={{
+                        background: "var(--surface)",
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        boxShadow: "var(--shadow-sm)",
+                        padding: 14,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                        overflow: "hidden",
+                        margin: 12,
+                    }}
+                >
+                    <div
+                        className="flex items-center justify-between"
+                        style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: "var(--text3)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                            flexShrink: 0,
+                        }}
+                    >
+                        <div className="flex items-center" style={{ gap: 8 }}>
+                            <span>Detections</span>
+                            <span
+                                style={{
+                                    color: reviewedCount === totalCount && totalCount > 0 ? "#0F6E56" : "var(--text2)",
+                                    background: reviewedCount === totalCount && totalCount > 0 ? "#E1F5EE" : "var(--surface2)",
+                                    padding: "1px 8px",
+                                    borderRadius: 99,
+                                    border: `1px solid ${reviewedCount === totalCount && totalCount > 0 ? "#5DCAA5" : "var(--border)"}`,
+                                    fontVariantNumeric: "tabular-nums",
+                                    transition: "all 0.15s ease",
+                                }}
+                            >
+                                {reviewedCount}/{totalCount}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div
+                        style={{
+                            overflowY: "auto",
+                            flex: 1,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 6,
+                        }}
+                    >
+                        {loadingDets ? (
+                            <div style={{ color: "var(--text3)", fontSize: 12, textAlign: "center", padding: 12 }}>
+                                Loading…
+                            </div>
+                        ) : (
+                            detectionGroups.map(({ primary: d, overlapping }) => {
+                                const active = d.id === activeId && activeType === "det";
+                                const isEditing = editingDetectionId === d.id;
+                                const currentLabel = pendingLabels.get(d.id) ?? d.display_label ?? "Unknown";
+                                const isReviewed = d.status === "reviewed";
+
+                                return (
+                                    <div key={d.id}>
+                                        <div
+                                            onClick={() => {
+                                                setActiveId(active ? null : d.id);
+                                                setActiveType(active ? null : "det");
+                                            }}
+                                            onDoubleClick={() => {
+                                                setEditingDetectionId(d.id);
+                                                if (!pendingLabels.has(d.id)) {
+                                                    setPendingLabels(prev =>
+                                                        new Map(prev).set(d.id, d.display_label ?? "")
+                                                    );
+                                                }
+                                            }}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 8,
+                                                padding: "7px 10px",
+                                                borderRadius: 7,
+                                                cursor: "pointer",
+                                                background: active ? "#E6F1FB" : "var(--surface2)",
+                                                border: `1.5px solid ${active ? "#378ADD" : "var(--border)"}`,
+                                                boxShadow: isReviewed ? "inset 3px 0 0 #1D9E75" : "none",
+                                                paddingLeft: isReviewed ? 13 : 10,
+                                                transition: "background 0.1s, box-shadow 0.15s, border-color 0.1s",
+                                            }}
+                                        >
+                                            <span
+                                                style={{
+                                                    width: 10,
+                                                    height: 10,
+                                                    borderRadius: "50%",
+                                                    background:
+                                                        labelColorMap.get(d.display_label || "Unknown") ??
+                                                        "var(--text3)",
+                                                    flexShrink: 0,
+                                                }}
+                                            />
+                                            {isEditing ? (
+                                                <input
+                                                    autoFocus
+                                                    value={currentLabel}
+                                                    onChange={e =>
+                                                        setPendingLabels(prev =>
+                                                            new Map(prev).set(d.id, e.target.value)
+                                                        )
+                                                    }
+                                                    onBlur={() =>
+                                                        commitDetectionLabel(d.id, currentLabel, d.display_label ?? "")
+                                                    }
+                                                    onKeyDown={e => {
+                                                        if (e.key === "Enter") {
+                                                            commitDetectionLabel(d.id, currentLabel, d.display_label ?? "");
+                                                        } else if (e.key === "Escape") {
+                                                            setPendingLabels(prev => {
+                                                                const next = new Map(prev);
+                                                                next.delete(d.id);
+                                                                return next;
+                                                            });
+                                                            setEditingDetectionId(null);
+                                                        }
+                                                    }}
+                                                    onClick={e => e.stopPropagation()}
+                                                    style={{
+                                                        flex: 1,
+                                                        fontSize: 13,
+                                                        fontFamily: "inherit",
+                                                        fontStyle: "italic",
+                                                        fontWeight: 600,
+                                                        background: "transparent",
+                                                        border: "none",
+                                                        borderBottom: "1.5px solid var(--primary)",
+                                                        outline: "none",
+                                                        color: "var(--text1)",
+                                                        padding: "0 2px",
+                                                    }}
+                                                />
+                                            ) : (
+                                                <span
+                                                    style={{
+                                                        flex: 1,
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        gap: 6,
+                                                        minWidth: 0,
+                                                    }}
+                                                >
+                                                    <span
+                                                        style={{
+                                                            fontSize: 13,
+                                                            color: "var(--text1)",
+                                                            fontWeight: active ? 600 : 500,
+                                                            fontStyle: "italic",
+                                                            overflow: "hidden",
+                                                            textOverflow: "ellipsis",
+                                                            whiteSpace: "nowrap",
+                                                        }}
+                                                    >
+                                                        {currentLabel}
+                                                    </span>
+                                                    {editedIds.has(d.id) && (
+                                                        <span
+                                                            style={{
+                                                                fontSize: 9,
+                                                                fontWeight: 700,
+                                                                fontStyle: "normal",
+                                                                padding: "1px 6px",
+                                                                borderRadius: 99,
+                                                                background: "#E1F5EE",
+                                                                color: "#0F6E56",
+                                                                textTransform: "uppercase",
+                                                                letterSpacing: "0.04em",
+                                                                flexShrink: 0,
+                                                            }}
+                                                        >
+                                                            edited
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            )}
+                                            {d.score != null && !reviewedWithoutScore.has(d.id) && !isEditing && (
+                                                <span style={{ fontSize: 11, color: "var(--text3)", fontWeight: 600, flexShrink: 0 }}>
+                                                    {Math.round((d.score ?? 0) * 100)}%
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    handleDeleteDetection(d.id);
+                                                }}
+                                                title="Delete detection"
+                                                style={{
+                                                    background: "none",
+                                                    border: "none",
+                                                    color: "var(--text3)",
+                                                    cursor: "pointer",
+                                                    fontSize: 14,
+                                                    lineHeight: 1,
+                                                    padding: "2px 3px",
+                                                    fontFamily: "inherit",
+                                                    flexShrink: 0,
+                                                    opacity: 0.45,
+                                                }}
+                                                onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                                                onMouseLeave={e => (e.currentTarget.style.opacity = "0.45")}
+                                            >
+                                                ×
+                                            </button>
+                                            {/* Checkmark circle — marks as reviewed; locked once reviewed */}
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    if (isReviewed) return;
+                                                    setDetections(prev => prev.map(det =>
+                                                        det.id === d.id ? { ...det, status: "reviewed" } : det
+                                                    ));
+                                                    api.reviewDetectionLabel(d.id, d.display_label ?? "")
+                                                        .then(recordSave)
+                                                        .catch(err => setSaveError(err?.message ?? "Failed to save"));
+                                                }}
+                                                title={isReviewed ? "Reviewed" : "Mark as reviewed"}
+                                                disabled={isReviewed}
+                                                style={{
+                                                    background: isReviewed ? "#1D9E75" : "none",
+                                                    border: `1.5px solid ${isReviewed ? "#1D9E75" : "var(--text3)"}`,
+                                                    borderRadius: "50%",
+                                                    width: 20,
+                                                    height: 20,
+                                                    flexShrink: 0,
+                                                    cursor: isReviewed ? "default" : "pointer",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    padding: 0,
+                                                    transition: "background 0.15s, border-color 0.15s",
+                                                    opacity: isReviewed ? 1 : 0.45,
+                                                }}
+                                            >
+                                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                                    <path
+                                                        d="M2 5l2.2 2.3L8 3"
+                                                        stroke={isReviewed ? "#fff" : "var(--text3)"}
+                                                        strokeWidth="1.6"
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                    />
+                                                </svg>
+                                            </button>
+                                        </div>
+
+                                        {/* Show overlapping alternatives when not yet reviewed */}
+                                        {!isReviewed && overlapping.map(alt => (
+                                            <div
+                                                key={alt.id}
+                                                style={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: 10,
+                                                    padding: "5px 10px 5px 28px",
+                                                    opacity: 0.75,
+                                                }}
+                                            >
+                                                <span
+                                                    style={{
+                                                        width: 6,
+                                                        height: 6,
+                                                        borderRadius: "50%",
+                                                        background:
+                                                            labelColorMap.get(alt.display_label || "Unknown") ??
+                                                            "var(--text3)",
+                                                    }}
+                                                />
+                                                <span style={{ flex: 1, fontSize: 12, color: "var(--text2)" }}>
+                                                    {alt.display_label || "Unknown"}
+                                                </span>
+                                                <span style={{ fontSize: 11, color: "var(--text3)" }}>
+                                                    {Math.round((alt.score ?? 0) * 100)}%
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                );
+                            })
+                        )}
+
+                        {!loadingBboxes &&
+                            boundingBoxes.map(b => {
+                                const active = b.id === activeId && activeType === "bbox";
+                                const bboxColor = labelColorMap.get(b.display_label) ?? "#34d399";
+                                const isEditingBbox = editingDetectionId === b.id;
+                                const currentBboxLabel = pendingLabels.get(b.id) ?? b.display_label;
+                
+                                return (
+                                    <div
+                                        key={b.id}
+                                        onClick={() => {
+                                            setActiveId(active ? null : b.id);
+                                            setActiveType(active ? null : "bbox");
+                                        }}
+                                        onDoubleClick={() => {
+                                            setEditingDetectionId(b.id);
+                                            if (!pendingLabels.has(b.id)) {
+                                                setPendingLabels(prev => new Map(prev).set(b.id, b.display_label));
+                                            }
+                                        }}
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 8,
+                                            padding: "7px 10px",
+                                            paddingLeft: 13,
+                                            borderRadius: 7,
+                                            cursor: "pointer",
+                                            background: active ? "#E6F1FB" : "var(--surface2)",
+                                            border: `1.5px dashed ${active ? "#378ADD" : "var(--border)"}`,
+                                            boxShadow: "inset 3px 0 0 #1D9E75",
+                                            transition: "background 0.1s, border-color 0.1s",
+                                        }}
+                                    >
+                                        <span
+                                            style={{
+                                                width: 10,
+                                                height: 10,
+                                                borderRadius: "50%",
+                                                background: "transparent",
+                                                border: `2px solid ${bboxColor}`,
+                                                flexShrink: 0,
+                                            }}
+                                        />
+                                        {isEditingBbox ? (
+                                            <input
+                                                autoFocus
+                                                value={currentBboxLabel}
+                                                onChange={e =>
+                                                    setPendingLabels(prev => new Map(prev).set(b.id, e.target.value))
+                                                }
+                                                onBlur={() =>
+                                                    commitBboxLabel(b.id, currentBboxLabel, b.display_label)
+                                                }
+                                                onKeyDown={e => {
+                                                    if (e.key === "Enter") {
+                                                        commitBboxLabel(b.id, currentBboxLabel, b.display_label);
+                                                    } else if (e.key === "Escape") {
+                                                        setPendingLabels(prev => {
+                                                            const next = new Map(prev);
+                                                            next.delete(b.id);
+                                                            return next;
+                                                        });
+                                                        setEditingDetectionId(null);
+                                                    }
+                                                }}
+                                                onClick={e => e.stopPropagation()}
+                                                style={{
+                                                    flex: 1,
+                                                    fontSize: 13,
+                                                    fontFamily: "inherit",
+                                                    fontWeight: 600,
+                                                    background: "transparent",
+                                                    border: "none",
+                                                    borderBottom: `1.5px solid ${bboxColor}`,
+                                                    outline: "none",
+                                                    color: "var(--text1)",
+                                                    padding: "0 2px",
+                                                }}
+                                            />
+                                        ) : (
+                                            <span
+                                                style={{
+                                                    flex: 1,
+                                                    fontSize: 13,
+                                                    color: "var(--text1)",
+                                                    fontWeight: active ? 600 : 500,
+                                                    overflow: "hidden",
+                                                    textOverflow: "ellipsis",
+                                                    whiteSpace: "nowrap",
+                                                }}
+                                            >
+                                                {currentBboxLabel}
+                                            </span>
+                                        )}
+                                        <span style={{ fontSize: 9, color: bboxColor, fontWeight: 700, flexShrink: 0, opacity: 0.75 }}>
+                                            drawn
+                                        </span>
+                                        <button
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                handleDeleteBbox(b.id);
+                                            }}
+                                            title="Delete annotation"
+                                            style={{
+                                                background: "none",
+                                                border: "none",
+                                                color: "var(--text3)",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                lineHeight: 1,
+                                                padding: "2px 3px",
+                                                fontFamily: "inherit",
+                                                flexShrink: 0,
+                                                opacity: 0.45,
+                                            }}
+                                            onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                                            onMouseLeave={e => (e.currentTarget.style.opacity = "0.45")}
+                                        >
+                                            ×
+                                        </button>
+                                        {/* Bboxes are human-drawn → always shown as reviewed */}
+                                        <button
+                                            onClick={e => e.stopPropagation()}
+                                            title="Reviewed (human annotation)"
+                                            style={{
+                                                background: "#1D9E75",
+                                                border: "1.5px solid #1D9E75",
+                                                borderRadius: "50%",
+                                                width: 20,
+                                                height: 20,
+                                                flexShrink: 0,
+                                                cursor: "default",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                padding: 0,
+                                            }}
+                                        >
+                                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                                <path
+                                                    d="M2 5l2.2 2.3L8 3"
+                                                    stroke="#fff"
+                                                    strokeWidth="1.6"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                );
+                            })}
+
+                    </div>
+
+                    <div
+                        style={{
+                            borderTop: "1px solid var(--border)",
+                            paddingTop: 12,
+                            flexShrink: 0,
+                        }}
+                    >
+                        {saveError && (
+                            <div
+                                style={{
+                                    fontSize: 12,
+                                    color: "var(--danger)",
+                                    background: "#fff0f0",
+                                    border: "1px solid #ffd0d0",
+                                    borderRadius: 6,
+                                    padding: "6px 10px",
+                                    marginBottom: 8,
+                                }}
+                            >
+                                {saveError}
+                            </div>
+                        )}
+                        {savedAt !== null && (
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 5,
+                                    fontSize: 11,
+                                    color: "#0F6E56",
+                                    marginBottom: 8,
+                                    fontWeight: 500,
+                                }}
+                            >
+                                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                    <circle cx="6.5" cy="6.5" r="5.5" stroke="#1D9E75" strokeWidth="1.2" />
+                                    <path d="M4 6.5l1.8 1.9L9.5 4.5" stroke="#1D9E75" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                {(() => {
+                                    const secs = Math.floor((Date.now() - (savedAt ?? 0)) / 1000);
+                                    return "Saved · " + (secs <= 0 ? "just now" : secs + "s ago");
+                                })()}
+                            </div>
+                        )}
+                        {reviewedCount === totalCount && totalCount > 0 ? null : (
+                            <>
+                                <button
+                                    onClick={handleBulkMarkCorrect}
+                                    disabled={savingReview || totalCount === 0}
+                                    className={styles.btnPrimary}
+                                    style={{
+                                        width: "100%",
+                                        justifyContent: "center",
+                                        background: "#5DCAA5",
+                                        padding: "10px",
+                                        fontSize: 13,
+                                    }}
+                                >
+                                    {savingReview
+                                        ? "Saving…"
+                                        : reviewedCount === 0
+                                            ? "Mark all as correct"
+                                            : "Mark remaining as correct"}
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
+
             </div>
         </div>
     );
 }
 
-// Build this once from all detections in the frame, outside the component or as a useMemo
+/* ──────────────────────────────────────────────────────────────────────────
+   MODELS SCREEN
+   ────────────────────────────────────────────────────────────────────────── */
+function ModelsScreen() {
+    const classes = [
+        {
+            name: "Lutjanus carponotatus",
+            precision: 91,
+            recall: 88,
+            f1: 89,
+            samples: 1842,
+            color: "var(--primary-dark)",
+        },
+        {
+            name: "Epinephelus coioides",
+            precision: 87,
+            recall: 84,
+            f1: 85,
+            samples: 1240,
+            color: "var(--primary)",
+        },
+        {
+            name: "Acanthurus leucosternon",
+            precision: 78,
+            recall: 71,
+            f1: 74,
+            samples: 890,
+            color: "var(--teal)",
+        },
+        {
+            name: "Thalassoma lunare",
+            precision: 82,
+            recall: 79,
+            f1: 80,
+            samples: 674,
+            color: "var(--success)",
+        },
+        {
+            name: "Cephalopholis miniata",
+            precision: 69,
+            recall: 63,
+            f1: 66,
+            samples: 512,
+            color: "var(--warning)",
+        },
+        {
+            name: "Siganus vulpinus",
+            precision: 74,
+            recall: 68,
+            f1: 71,
+            samples: 387,
+            color: "var(--coral)",
+        },
+    ];
+
+    return (
+        <>
+            <div className={styles.topbar}>
+                <div>
+                    <div className={styles.topbarTitle}>Model Performance</div>
+                    <div className={styles.topbarSubtitle}>DINOv2-based detector</div>
+                </div>
+                <div className={styles.topbarActions}>
+                    <button className={styles.btnSecondary}>
+                        <Download size={12} /> Export
+                    </button>
+                </div>
+            </div>
+            <div className={styles.content}>
+                <div className={styles.statCardGrid}>
+                    <StatCard
+                        label="mAP@0.5"
+                        value="81.2%"
+                        sub="↑ 3.4% this session"
+                        Icon={Activity}
+                        color="var(--primary)"
+                    />
+                    <StatCard
+                        label="Precision"
+                        value="80.8%"
+                        sub="across all classes"
+                        Icon={CheckCircle}
+                        color="var(--success)"
+                    />
+                    <StatCard
+                        label="Recall"
+                        value="75.3%"
+                        sub="↑ improving"
+                        Icon={Eye}
+                        color="var(--teal)"
+                    />
+                    <StatCard
+                        label="Uncertain"
+                        value="147"
+                        sub="queued for active learning"
+                        Icon={Zap}
+                        color="var(--warning)"
+                    />
+                </div>
+
+                <div className={styles.panel}>
+                    <div className={styles.panelTitle}>Per-class metrics</div>
+                    <div
+                        style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr auto auto auto auto",
+                            gap: "0 16px",
+                            alignItems: "center",
+                        }}
+                    >
+                        {["Species", "Precision", "Recall", "F1", "Samples"].map(h => (
+                            <div
+                                key={h}
+                                style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    color: "var(--text3)",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.05em",
+                                    paddingBottom: 8,
+                                    borderBottom: "1px solid var(--border)",
+                                    marginBottom: 4,
+                                }}
+                            >
+                                {h}
+                            </div>
+                        ))}
+                        {classes.map(c => (
+                            <Fragment key={c.name}>
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 7,
+                                        paddingBottom: 10,
+                                    }}
+                                >
+                                    <span
+                                        style={{
+                                            width: 8,
+                                            height: 8,
+                                            borderRadius: 2,
+                                            background: c.color,
+                                        }}
+                                    />
+                                    <span
+                                        style={{
+                                            fontSize: 12,
+                                            fontStyle: "italic",
+                                            color: "var(--text1)",
+                                        }}
+                                    >
+                                        {c.name}
+                                    </span>
+                                </div>
+                                {[c.precision, c.recall, c.f1].map((v, j) => (
+                                    <div key={j} style={{ paddingBottom: 10 }}>
+                                        <span
+                                            style={{
+                                                fontSize: 12,
+                                                fontWeight: 600,
+                                                color:
+                                                    v > 80
+                                                        ? "var(--success)"
+                                                        : v > 70
+                                                            ? "var(--warning)"
+                                                            : "var(--danger)",
+                                            }}
+                                        >
+                                            {v}%
+                                        </span>
+                                    </div>
+                                ))}
+                                <div
+                                    style={{
+                                        paddingBottom: 10,
+                                        fontSize: 11,
+                                        color: "var(--text3)",
+                                        fontFamily: "var(--font-dm-mono), monospace",
+                                    }}
+                                >
+                                    {c.samples.toLocaleString()}
+                                </div>
+                            </Fragment>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </>
+    );
+}
+
+function StatCard({
+    label,
+    value,
+    sub,
+    Icon,
+    color,
+}: {
+    label: string;
+    value: string;
+    sub?: string;
+    Icon: LucideIcon;
+    color: string;
+}) {
+    return (
+        <div className={styles.statCard}>
+            <div className={styles.statCardHead}>
+                <span className={styles.statCardLabel}>{label}</span>
+                <div
+                    className={styles.statCardIcon}
+                    style={{ background: `${color}1f` }}
+                >
+                    <Icon size={14} color={color} />
+                </div>
+            </div>
+            <div className={styles.statCardValue}>{value}</div>
+            {sub && <div className={styles.statCardSub}>{sub}</div>}
+        </div>
+    );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   DATASETS SCREEN
+   ────────────────────────────────────────────────────────────────────────── */
+function DatasetsScreen({ frames }: { frames: FrameRow[] }) {
+    const totalFrames = frames.length;
+    const labeled = frames.filter(f =>
+        f.detections.some(d => d.status === "reviewed")
+    ).length;
+    const pct = totalFrames > 0 ? Math.round((labeled / totalFrames) * 100) : 0;
+
+    const datasets = [
+        {
+            name: "GBR Transect 12B",
+            frames: 4820,
+            labeled: 2988,
+            date: "In progress",
+            size: "14.2 GB",
+        },
+        {
+            name: "Coral Sea T07",
+            frames: 3210,
+            labeled: 3210,
+            date: "Apr 28, 2026",
+            size: "9.7 GB",
+        },
+        {
+            name: "Ningaloo T03A",
+            frames: 2870,
+            labeled: 2526,
+            date: "Apr 25, 2026",
+            size: "8.1 GB",
+        },
+    ];
+
+    return (
+        <>
+            <div className={styles.topbar}>
+                <div>
+                    <div className={styles.topbarTitle}>Datasets</div>
+                    <div className={styles.topbarSubtitle}>
+                        Manage transect datasets
+                    </div>
+                </div>
+                <div className={styles.topbarActions}>
+                    <button className={styles.btnPrimary}>
+                        <Plus size={13} />
+                        New Dataset
+                    </button>
+                </div>
+            </div>
+            <div className={styles.content}>
+                <div className={styles.statCardGrid} style={{ gridTemplateColumns: "repeat(3,1fr)" }}>
+                    <StatCard
+                        label="Total frames"
+                        value={totalFrames.toLocaleString()}
+                        Icon={ImageIcon}
+                        color="var(--primary)"
+                    />
+                    <StatCard
+                        label="Labeled frames"
+                        value={labeled.toLocaleString()}
+                        sub={`${pct}% complete`}
+                        Icon={CheckCircle}
+                        color="var(--success)"
+                    />
+                    <StatCard
+                        label="Active datasets"
+                        value={String(datasets.length)}
+                        Icon={Database}
+                        color="var(--teal)"
+                    />
+                </div>
+
+                <div
+                    style={{
+                        background: "var(--surface)",
+                        borderRadius: "var(--r-md)",
+                        border: "1px solid var(--border)",
+                        boxShadow: "var(--shadow-sm)",
+                        overflow: "hidden",
+                    }}
+                >
+                    <div className={styles.tableHead}>
+                        {["Dataset", "Frames", "Labeled", "Size", "Date", ""].map(h => (
+                            <div key={h} className={styles.tableHeadCell}>
+                                {h}
+                            </div>
+                        ))}
+                    </div>
+                    {datasets.map(d => (
+                        <div key={d.name} className={styles.tableRow}>
+                            <div>
+                                <div className={styles.tableRowName}>{d.name}</div>
+                                <div style={{ marginTop: 4 }}>
+                                    <ProgressBar
+                                        value={(d.labeled / d.frames) * 100}
+                                        color={
+                                            d.labeled === d.frames
+                                                ? "var(--success)"
+                                                : "var(--primary)"
+                                        }
+                                        height={3}
+                                    />
+                                </div>
+                            </div>
+                            <div className={`${styles.tableRowValue} ${styles.tableRowMono}`}>
+                                {d.frames.toLocaleString()}
+                            </div>
+                            <div className={styles.tableRowValue}>
+                                {d.labeled.toLocaleString()}{" "}
+                                <span style={{ color: "var(--text3)", fontSize: 11 }}>
+                                    ({Math.round((d.labeled / d.frames) * 100)}%)
+                                </span>
+                            </div>
+                            <div className={`${styles.tableRowValue} ${styles.tableRowMono}`}>
+                                {d.size}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text3)" }}>
+                                {d.date}
+                            </div>
+                            <div className={styles.tableActions}>
+                                <button className={styles.btnSecondary} style={{ padding: "4px 9px", fontSize: 11 }}>
+                                    Export
+                                </button>
+                                <button className={styles.btnPrimary} style={{ padding: "4px 12px", fontSize: 11 }}>
+                                    Open
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </>
+    );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Helpers
+   ────────────────────────────────────────────────────────────────────────── */
 function buildLabelColorMap(detections: any[]): Map<string, string> {
-    const uniqueLabels = [...new Set(detections.map(d => d.display_label || "Unknown"))];
+    const uniqueLabels = [
+        ...new Set(detections.map(d => d.display_label || "Unknown")),
+    ];
     const map = new Map<string, string>();
-
     uniqueLabels.forEach((label, i) => {
-        // Spread evenly around the wheel, offset by golden angle to avoid similar hues
         const hue = (i * 137.508) % 360;
-        map.set(label, `hsl(${hue}, 75%, 58%)`);
+        map.set(label, `hsl(${hue}, 65%, 55%)`);
     });
-
     return map;
 }
 
 function iou(a: number[], b: number[]): number {
     const [ax1, ay1, ax2, ay2] = a;
     const [bx1, by1, bx2, by2] = b;
-
     const interX1 = Math.max(ax1, bx1);
     const interY1 = Math.max(ay1, by1);
     const interX2 = Math.min(ax2, bx2);
     const interY2 = Math.min(ay2, by2);
-
     const interW = Math.max(0, interX2 - interX1);
     const interH = Math.max(0, interY2 - interY1);
     const interArea = interW * interH;
-
     const aArea = (ax2 - ax1) * (ay2 - ay1);
     const bArea = (bx2 - bx1) * (by2 - by1);
-
     return interArea / (aArea + bArea - interArea);
 }
 
-const IOU_THRESHOLD = 0.85; // tweak this — higher = only merge near-identical boxes
+const IOU_THRESHOLD = 0.85;
 
-function groupDetections(detections: any[]): { primary: any; overlapping: any[] }[] {
+function groupDetections(
+    detections: any[]
+): { primary: any; overlapping: any[] }[] {
     const sorted = [...detections].sort((a, b) => b.score - a.score);
     const used = new Set<string>();
     const groups: { primary: any; overlapping: any[] }[] = [];
-
     for (const det of sorted) {
         if (used.has(det.id)) continue;
         const group = { primary: det, overlapping: [] as any[] };
         used.add(det.id);
-
         for (const other of sorted) {
             if (used.has(other.id)) continue;
             if (iou(det.bbox, other.bbox) >= IOU_THRESHOLD) {
@@ -1175,6 +3225,5 @@ function groupDetections(detections: any[]): { primary: any; overlapping: any[] 
         }
         groups.push(group);
     }
-
     return groups;
 }

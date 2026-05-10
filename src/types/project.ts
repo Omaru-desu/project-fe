@@ -8,6 +8,12 @@ export interface Project {
     frame_count: number;
     created_at: string;
     owner: string;
+    /** Optional analytics — backend may populate later. Components fall back to 0. */
+    reviewed_count?: number;
+    detection_count?: number;
+    flagged_count?: number;
+    species_count?: number;
+    updated_at?: string;
 }
 
 export interface CreateProjectInput {
@@ -19,7 +25,7 @@ export interface CreateProjectInput {
 export interface UpdateProjectInput {
     name?: string;
     description?: string;
-    status?: 'active' | 'completed' | 'archived' | 'test';
+    type?: ProjectType;
 }
 
 export interface Detection {
@@ -33,7 +39,18 @@ export interface Detection {
     score: number;
     source_filename: string;
     frame_url: string;
-    annotation_source: "machine" | "human"; 
+    annotation_source: "machine" | "human";
+}
+
+export interface SemanticResult {
+    detection_id: string;
+    frame_id: string;
+    label_id: string;
+    display_label: string;
+    bbox: number[];
+    score: number;
+    crop_url: string | null;
+    similarity: number;
 }
 
 export interface ProjectDetail {
@@ -52,4 +69,3 @@ export interface UploadFile {
     status: FileUploadStatus;
     progress: number;
 }
-
