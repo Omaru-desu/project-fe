@@ -10,6 +10,7 @@ export interface Project {
     owner: string;
     /** Optional analytics — backend may populate later. Components fall back to 0. */
     reviewed_count?: number;
+    detection_count?: number;
     flagged_count?: number;
     species_count?: number;
     updated_at?: string;
