@@ -3,6 +3,22 @@ import { createBrowserSupabaseClient } from './supabase/client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+export interface ClassMetric {
+    label: string;
+    precision: number;
+    recall: number;
+    f1: number;
+    samples: number;
+}
+ 
+export interface ModelPerformanceResponse {
+    map_at_05: number;
+    precision: number;
+    recall: number;
+    uncertain_count: number;
+    per_class: ClassMetric[];
+}
+
 async function authHeaders(isFormData = false): Promise<HeadersInit> {
     const supabase = createBrowserSupabaseClient();
     const { data: { session } } = await supabase.auth.getSession();
@@ -254,4 +270,11 @@ export async function deleteDetection(detectionId: string): Promise<void> {
         headers: await authHeaders(),
     });
     return handleResponse<void>(res);
+}
+
+export async function getModelPerformance(projectId: string): Promise<ModelPerformanceResponse> {
+    const res = await fetch(`${API_URL}/api/model-performance?project_id=${projectId}`, {
+        headers: await authHeaders(),
+    });
+    return handleResponse<ModelPerformanceResponse>(res);
 }
