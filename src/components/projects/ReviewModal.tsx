@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Check, Pencil } from "lucide-react";
+import { X, Check, Pencil, Trash2 } from "lucide-react";
 import { Detection } from "../../types/project";
 import * as api from "../../lib/api";
 
 interface ReviewModalProps {
     detection: Detection;
+    projectId: string;
     onClose: () => void;
     onMarkReviewed: (id: string, newLabel: string) => void;
+    onDeleted: (id: string) => void;
 }
 
 const VOCAB_DISPLAY_LABELS = [
@@ -48,8 +50,10 @@ function deriveAccent(score: number): string {
 
 export default function ReviewModal({
     detection: d,
+    projectId,
     onClose,
     onMarkReviewed,
+    onDeleted,
 }: ReviewModalProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +145,24 @@ export default function ReviewModal({
     useEffect(() => {
         if (isEditing) inputRef.current?.focus();
     }, [isEditing]);
+
+    async function handleDelete() {
+        setLoading(true);
+        setError(null);
+        try {
+            if (d.annotation_source === "human") {
+                await api.deleteBoundingBox(projectId, d.frame_id, d.id);
+            } else {
+                await api.deleteDetection(d.id);
+            }
+            onDeleted(d.id);
+            onClose();
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Failed to delete detection");
+        } finally {
+            setLoading(false);
+        }
+    }
 
     async function handleConfirm() {
         const finalLabel = labelValue.trim() || d.display_label;
@@ -467,22 +489,25 @@ export default function ReviewModal({
                     }}
                 >
                     <button
-                        onClick={onClose}
+                        onClick={handleDelete}
                         disabled={loading}
+                        className="flex items-center justify-center"
                         style={{
                             flex: 1,
+                            gap: 6,
                             padding: 10,
                             borderRadius: 9,
-                            border: "1.5px solid var(--border)",
-                            background: "var(--surface)",
-                            color: "var(--text2)",
+                            border: "1.5px solid #ffd0d0",
+                            background: loading ? "#fff8f8" : "#fff0f0",
+                            color: "var(--danger)",
                             fontFamily: "inherit",
                             fontSize: 13,
                             fontWeight: 600,
                             cursor: loading ? "wait" : "pointer",
                         }}
                     >
-                        Cancel
+                        <Trash2 size={14} />
+                        Delete
                     </button>
                     <button
                         onClick={handleConfirm}
