@@ -473,7 +473,7 @@ export default function ProjectPage({ projectId }: Props) {
                         hasCheckpoint={project.has_checkpoint ?? true}
                     />
                 )}
-                {screen === "models" && <ModelsScreen />}
+                {screen === "models" && <ModelsScreen projectId={projectId}/>}
                 {screen === "datasets" && (
                     <DatasetsScreen
                         projectId={projectId}
@@ -3022,58 +3022,41 @@ function AnnotateReview({
 /* ──────────────────────────────────────────────────────────────────────────
    MODELS SCREEN
    ────────────────────────────────────────────────────────────────────────── */
-function ModelsScreen() {
-    const classes = [
-        {
-            name: "Lutjanus carponotatus",
-            precision: 91,
-            recall: 88,
-            f1: 89,
-            samples: 1842,
-            color: "var(--primary-dark)",
-        },
-        {
-            name: "Epinephelus coioides",
-            precision: 87,
-            recall: 84,
-            f1: 85,
-            samples: 1240,
-            color: "var(--primary)",
-        },
-        {
-            name: "Acanthurus leucosternon",
-            precision: 78,
-            recall: 71,
-            f1: 74,
-            samples: 890,
-            color: "var(--teal)",
-        },
-        {
-            name: "Thalassoma lunare",
-            precision: 82,
-            recall: 79,
-            f1: 80,
-            samples: 674,
-            color: "var(--success)",
-        },
-        {
-            name: "Cephalopholis miniata",
-            precision: 69,
-            recall: 63,
-            f1: 66,
-            samples: 512,
-            color: "var(--warning)",
-        },
-        {
-            name: "Siganus vulpinus",
-            precision: 74,
-            recall: 68,
-            f1: 71,
-            samples: 387,
-            color: "var(--coral)",
-        },
-    ];
 
+const CLASS_COLORS = [
+    "var(--primary-dark)",
+    "var(--primary)",
+    "var(--teal)",
+    "var(--success)",
+    "var(--warning)",
+    "var(--coral)",
+];
+ 
+function ModelsScreen({ projectId }: { projectId: string }) {
+    const [data, setData] = useState<ModelPerformanceResponse | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+ 
+    useEffect(() => {
+        async function fetchPerformance() {
+            setLoading(true);
+            setError(null);
+            try {
+                const json = await api.getModelPerformance(projectId);
+                setData(json);
+            } catch (err: any) {
+                setError(err.message || "Failed to load model performance");
+            } finally {
+                setLoading(false);
+            }
+        }
+ 
+        fetchPerformance();
+    }, [projectId]);
+ 
+    // No reviewed detections yet — nothing to evaluate
+    const hasNoData = data && data.per_class.length === 0;
+ 
     return (
         <>
             <div className={styles.topbar}>
@@ -3082,134 +3065,258 @@ function ModelsScreen() {
                     <div className={styles.topbarSubtitle}>DINOv2-based detector</div>
                 </div>
                 <div className={styles.topbarActions}>
-                    <button className={styles.btnSecondary}>
-                        <Download size={12} /> Export
-                    </button>
+                    {data && !hasNoData && (
+                        <button className={styles.btnSecondary}>
+                            <Download size={12} /> Export
+                        </button>
+                    )}
                 </div>
             </div>
+ 
             <div className={styles.content}>
-                <div className={styles.statCardGrid}>
-                    <StatCard
-                        label="mAP@0.5"
-                        value="81.2%"
-                        sub="↑ 3.4% this session"
-                        Icon={Activity}
-                        color="var(--primary)"
-                    />
-                    <StatCard
-                        label="Precision"
-                        value="80.8%"
-                        sub="across all classes"
-                        Icon={CheckCircle}
-                        color="var(--success)"
-                    />
-                    <StatCard
-                        label="Recall"
-                        value="75.3%"
-                        sub="↑ improving"
-                        Icon={Eye}
-                        color="var(--teal)"
-                    />
-                    <StatCard
-                        label="Uncertain"
-                        value="147"
-                        sub="queued for active learning"
-                        Icon={Zap}
-                        color="var(--warning)"
-                    />
-                </div>
-
-                <div className={styles.panel}>
-                    <div className={styles.panelTitle}>Per-class metrics</div>
+                {/* ── Loading state ── */}
+                {loading && (
+                    <div style={{ color: "var(--text3)", fontSize: 13, padding: "32px 0" }}>
+                        Loading model performance...
+                    </div>
+                )}
+ 
+                {/* ── Error state ── */}
+                {error && (
+                    <div style={{ color: "var(--danger)", fontSize: 13, padding: "32px 0" }}>
+                        {error}
+                    </div>
+                )}
+ 
+                {/* ── No reviewed data yet ── */}
+                {hasNoData && (
                     <div
                         style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr auto auto auto auto",
-                            gap: "0 16px",
+                            display: "flex",
+                            flexDirection: "column",
                             alignItems: "center",
+                            justifyContent: "center",
+                            gap: 12,
+                            padding: "64px 24px",
+                            textAlign: "center",
                         }}
                     >
-                        {["Species", "Precision", "Recall", "F1", "Samples"].map(h => (
+                        <div
+                            style={{
+                                width: 48,
+                                height: 48,
+                                borderRadius: 12,
+                                background: "rgba(245,188,98,0.12)",
+                                border: "1.5px solid rgba(245,188,98,0.3)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <Zap size={22} color="var(--warning)" />
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text1)", marginBottom: 6 }}>
+                                No reviewed detections yet
+                            </div>
+                            <div style={{ fontSize: 13, color: "var(--text3)", maxWidth: 320, lineHeight: 1.6 }}>
+                                Model evaluation is calculated from reviewed annotations.
+                                Go to the <strong>Annotate</strong> tab to start reviewing detections.
+                            </div>
+                        </div>
+                        {data.uncertain_count > 0 && (
                             <div
-                                key={h}
                                 style={{
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    color: "var(--text3)",
-                                    textTransform: "uppercase",
-                                    letterSpacing: "0.05em",
-                                    paddingBottom: 8,
-                                    borderBottom: "1px solid var(--border)",
+                                    marginTop: 4,
+                                    padding: "8px 16px",
+                                    borderRadius: 8,
+                                    background: "rgba(245,188,98,0.1)",
+                                    border: "1px solid rgba(245,188,98,0.25)",
+                                    fontSize: 12,
+                                    color: "var(--warning)",
+                                    fontWeight: 600,
+                                }}
+                            >
+                                {data.uncertain_count.toLocaleString()} detection{data.uncertain_count !== 1 ? "s" : ""} waiting for review
+                            </div>
+                        )}
+                    </div>
+                )}
+ 
+                {/* ── Data loaded ── */}
+                {data && !hasNoData && (
+                    <>
+                        {/* Uncertain banner — shown when some detections still need review */}
+                        {data.uncertain_count > 0 && (
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "9px 14px",
+                                    borderRadius: 8,
+                                    background: "rgba(245,188,98,0.08)",
+                                    border: "1px solid rgba(245,188,98,0.25)",
+                                    fontSize: 12,
+                                    color: "var(--warning)",
                                     marginBottom: 4,
                                 }}
                             >
-                                {h}
+                                <Zap size={13} color="var(--warning)" />
+                                <span>
+                                    <strong>{data.uncertain_count.toLocaleString()}</strong> detection{data.uncertain_count !== 1 ? "s" : ""} still need review —
+                                    metrics below are based on reviewed annotations only.
+                                </span>
                             </div>
-                        ))}
-                        {classes.map(c => (
-                            <Fragment key={c.name}>
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 7,
-                                        paddingBottom: 10,
-                                    }}
-                                >
-                                    <span
+                        )}
+ 
+                        <div className={styles.statCardGrid}>
+                            <StatCard
+                                label="mAP@0.5"
+                                value={`${data.map_at_05}%`}
+                                sub="across all classes"
+                                Icon={Activity}
+                                color="var(--primary)"
+                            />
+                            <StatCard
+                                label="Precision"
+                                value={`${data.precision}%`}
+                                sub="across all classes"
+                                Icon={CheckCircle}
+                                color="var(--success)"
+                            />
+                            <StatCard
+                                label="Recall"
+                                value={`${data.recall}%`}
+                                sub="↑ improving"
+                                Icon={Eye}
+                                color="var(--teal)"
+                            />
+                            <StatCard
+                                label="Uncertain"
+                                value={data.uncertain_count.toLocaleString()}
+                                sub="queued for active learning"
+                                Icon={Zap}
+                                color="var(--warning)"
+                            />
+                        </div>
+ 
+                        <div className={styles.panel}>
+                            <div className={styles.panelTitle}>Per-class metrics</div>
+                            <div
+                                style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "1fr auto auto auto auto",
+                                    gap: "0 16px",
+                                    alignItems: "center",
+                                }}
+                            >
+                                {["Species", "Precision", "Recall", "F1", "Samples"].map(h => (
+                                    <div
+                                        key={h}
                                         style={{
-                                            width: 8,
-                                            height: 8,
-                                            borderRadius: 2,
-                                            background: c.color,
-                                        }}
-                                    />
-                                    <span
-                                        style={{
-                                            fontSize: 12,
-                                            fontStyle: "italic",
-                                            color: "var(--text1)",
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            color: "var(--text3)",
+                                            textTransform: "uppercase",
+                                            letterSpacing: "0.05em",
+                                            paddingBottom: 8,
+                                            borderBottom: "1px solid var(--border)",
+                                            marginBottom: 4,
                                         }}
                                     >
-                                        {c.name}
-                                    </span>
-                                </div>
-                                {[c.precision, c.recall, c.f1].map((v, j) => (
-                                    <div key={j} style={{ paddingBottom: 10 }}>
-                                        <span
-                                            style={{
-                                                fontSize: 12,
-                                                fontWeight: 600,
-                                                color:
-                                                    v > 80
-                                                        ? "var(--success)"
-                                                        : v > 70
-                                                            ? "var(--warning)"
-                                                            : "var(--danger)",
-                                            }}
-                                        >
-                                            {v}%
-                                        </span>
+                                        {h}
                                     </div>
                                 ))}
-                                <div
-                                    style={{
-                                        paddingBottom: 10,
-                                        fontSize: 11,
-                                        color: "var(--text3)",
-                                        fontFamily: "var(--font-dm-mono), monospace",
-                                    }}
-                                >
-                                    {c.samples.toLocaleString()}
-                                </div>
-                            </Fragment>
-                        ))}
-                    </div>
-                </div>
+ 
+                                {data.per_class.map((c, i) => (
+                                    <Fragment key={c.label}>
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 7,
+                                                paddingBottom: 10,
+                                            }}
+                                        >
+                                            <span
+                                                style={{
+                                                    width: 8,
+                                                    height: 8,
+                                                    borderRadius: 2,
+                                                    background: CLASS_COLORS[i % CLASS_COLORS.length],
+                                                    flexShrink: 0,
+                                                }}
+                                            />
+                                            <span
+                                                style={{
+                                                    fontSize: 12,
+                                                    fontStyle: "italic",
+                                                    color: "var(--text1)",
+                                                }}
+                                            >
+                                                {c.label}
+                                            </span>
+                                        </div>
+ 
+                                        {[c.precision, c.recall, c.f1].map((v, j) => (
+                                            <div key={j} style={{ paddingBottom: 10 }}>
+                                                <span
+                                                    style={{
+                                                        fontSize: 12,
+                                                        fontWeight: 600,
+                                                        color:
+                                                            v > 80
+                                                                ? "var(--success)"
+                                                                : v > 70
+                                                                    ? "var(--warning)"
+                                                                    : "var(--danger)",
+                                                    }}
+                                                >
+                                                    {v}%
+                                                </span>
+                                            </div>
+                                        ))}
+ 
+                                        <div
+                                            style={{
+                                                paddingBottom: 10,
+                                                fontSize: 11,
+                                                color: "var(--text3)",
+                                                fontFamily: "var(--font-dm-mono), monospace",
+                                            }}
+                                        >
+                                            {c.samples.toLocaleString()}
+                                        </div>
+                                    </Fragment>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         </>
     );
 }
+ 
+/* ── Types ──────────────────────────────────────────────────────────────── */
+ 
+interface ClassMetric {
+    label: string;
+    precision: number;
+    recall: number;
+    f1: number;
+    samples: number;
+}
+ 
+interface ModelPerformanceResponse {
+    map_at_05: number;
+    precision: number;
+    recall: number;
+    uncertain_count: number;
+    per_class: ClassMetric[];
+}
+ 
 
 function StatCard({
     label,
