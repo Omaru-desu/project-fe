@@ -48,7 +48,7 @@ export default function ProjectCard({ project, onEditAction, onDeleteAction }: P
     const router = useRouter();
     const badge = STATUS_BADGE[project.type];
 
-    const total = project.frame_count ?? 0;
+    const total = project.detection_count ?? project.frame_count ?? 0;
     const reviewed = project.reviewed_count ?? 0;
     const flagged = project.flagged_count ?? 0;
     const unreviewed = Math.max(0, total - reviewed);
