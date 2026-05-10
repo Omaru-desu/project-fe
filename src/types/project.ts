@@ -1,10 +1,13 @@
 export type ProjectType = 'active' | 'test';
+export type ModelType = 'pretrained' | 'custom';
 
 export interface Project {
     id: string;
     name: string;
     description: string;
     type: ProjectType;
+    model_type: ModelType;
+    has_checkpoint: boolean;
     frame_count: number;
     created_at: string;
     owner: string;
@@ -20,6 +23,7 @@ export interface CreateProjectInput {
     name: string;
     description?: string;
     type: ProjectType;
+    model_type: ModelType;
 }
 
 export interface UpdateProjectInput {
