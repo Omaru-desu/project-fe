@@ -30,6 +30,8 @@ import {
     ChevronRight,
     Fish,
     LayoutGrid,
+    ChevronDown,
+    ChevronUp,
     type LucideIcon,
 } from "lucide-react";
 import { Detection, SemanticResult } from "../../../types/project";
@@ -467,7 +469,15 @@ export default function ProjectPage({ projectId }: Props) {
                     />
                 )}
                 {screen === "models" && <ModelsScreen />}
-                {screen === "datasets" && <DatasetsScreen frames={frames} />}
+                {screen === "datasets" && (
+                    <DatasetsScreen
+                        projectId={projectId}
+                        onOpenInAnnotator={(frameId) => {
+                            setAnnotateTarget({ frameId, detectionId: "" });
+                            setScreen("annotate");
+                        }}
+                    />
+                )}
             </div>
 
             {showUpload && (
@@ -3223,45 +3233,59 @@ function StatCard({
 /* ──────────────────────────────────────────────────────────────────────────
    DATASETS SCREEN
    ────────────────────────────────────────────────────────────────────────── */
-function DatasetsScreen({ frames }: { frames: FrameRow[] }) {
-    const totalFrames = frames.length;
-    const labeled = frames.filter(f =>
-        f.detections.some(d => d.status === "reviewed")
-    ).length;
-    const pct = totalFrames > 0 ? Math.round((labeled / totalFrames) * 100) : 0;
+function DatasetsScreen({
+    projectId,
+    onOpenInAnnotator,
+}: {
+    projectId: string;
+    onOpenInAnnotator: (frameId: string) => void;
+}) {
+    const [data, setData] = useState<api.DatasetsResponse | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [framesData, setFramesData] = useState<api.UploadFramesResponse | null>(null);
+    const [framesPage, setFramesPage] = useState(1);
+    const [loadingFrames, setLoadingFrames] = useState(false);
 
-    const datasets = [
-        {
-            name: "GBR Transect 12B",
-            frames: 4820,
-            labeled: 2988,
-            date: "In progress",
-            size: "14.2 GB",
-        },
-        {
-            name: "Coral Sea T07",
-            frames: 3210,
-            labeled: 3210,
-            date: "Apr 28, 2026",
-            size: "9.7 GB",
-        },
-        {
-            name: "Ningaloo T03A",
-            frames: 2870,
-            labeled: 2526,
-            date: "Apr 25, 2026",
-            size: "8.1 GB",
-        },
-    ];
+    async function fetchFrames(uploadId: string, page: number) {
+        setLoadingFrames(true);
+        try {
+            const data = await api.getUploadFrames(projectId, uploadId, page);
+            setFramesData(data);
+            setFramesPage(page);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoadingFrames(false);
+        }
+    }
+
+    useEffect(() => {
+        api.getDatasets(projectId)
+            .then(setData)
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, [projectId]);
+
+    const totalFrames = data?.total_frames ?? 0;
+    const reviewed = data?.reviewed_frames ?? 0;
+    const pct = totalFrames > 0 ? Math.round((reviewed / totalFrames) * 100) : 0;
+    const datasets = data?.datasets ?? [];
+
+    if (loading) {
+        return (
+            <div className={styles.loading}>
+                <div className={styles.loadingSpinner} />
+            </div>
+        );
+    }
 
     return (
         <>
             <div className={styles.topbar}>
                 <div>
                     <div className={styles.topbarTitle}>Datasets</div>
-                    <div className={styles.topbarSubtitle}>
-                        Manage transect datasets
-                    </div>
+                    <div className={styles.topbarSubtitle}>Manage transect datasets</div>
                 </div>
                 <div className={styles.topbarActions}>
                     <button className={styles.btnPrimary}>
@@ -3279,77 +3303,170 @@ function DatasetsScreen({ frames }: { frames: FrameRow[] }) {
                         color="var(--primary)"
                     />
                     <StatCard
-                        label="Labeled frames"
-                        value={labeled.toLocaleString()}
+                        label="Reviewed frames"
+                        value={reviewed.toLocaleString()}
                         sub={`${pct}% complete`}
                         Icon={CheckCircle}
                         color="var(--success)"
                     />
                     <StatCard
                         label="Active datasets"
-                        value={String(datasets.length)}
+                        value={String(data?.active_datasets ?? 0)}
+                        sub="currently processing"
                         Icon={Database}
                         color="var(--teal)"
                     />
                 </div>
 
-                <div
-                    style={{
-                        background: "var(--surface)",
-                        borderRadius: "var(--r-md)",
-                        border: "1px solid var(--border)",
-                        boxShadow: "var(--shadow-sm)",
-                        overflow: "hidden",
-                    }}
-                >
+                <div style={{
+                    background: "var(--surface)",
+                    borderRadius: "var(--r-md)",
+                    border: "1px solid var(--border)",
+                    boxShadow: "var(--shadow-sm)",
+                    overflow: "hidden",
+                }}>
                     <div className={styles.tableHead}>
-                        {["Dataset", "Frames", "Labeled", "Size", "Date", ""].map(h => (
-                            <div key={h} className={styles.tableHeadCell}>
+                        {["Dataset", "Total Frames", "Frames Reviewed", "Type", "Upload Date", ""].map((h, i) => (
+                            <div key={i} className={styles.tableHeadCell} style={{ textAlign: i === 0 ? "left" : "right" }}>
                                 {h}
                             </div>
                         ))}
                     </div>
-                    {datasets.map(d => (
-                        <div key={d.name} className={styles.tableRow}>
-                            <div>
-                                <div className={styles.tableRowName}>{d.name}</div>
-                                <div style={{ marginTop: 4 }}>
-                                    <ProgressBar
-                                        value={(d.labeled / d.frames) * 100}
-                                        color={
-                                            d.labeled === d.frames
-                                                ? "var(--success)"
-                                                : "var(--primary)"
-                                        }
-                                        height={3}
-                                    />
-                                </div>
-                            </div>
-                            <div className={`${styles.tableRowValue} ${styles.tableRowMono}`}>
-                                {d.frames.toLocaleString()}
-                            </div>
-                            <div className={styles.tableRowValue}>
-                                {d.labeled.toLocaleString()}{" "}
-                                <span style={{ color: "var(--text3)", fontSize: 11 }}>
-                                    ({Math.round((d.labeled / d.frames) * 100)}%)
-                                </span>
-                            </div>
-                            <div className={`${styles.tableRowValue} ${styles.tableRowMono}`}>
-                                {d.size}
-                            </div>
-                            <div style={{ fontSize: 11, color: "var(--text3)" }}>
-                                {d.date}
-                            </div>
-                            <div className={styles.tableActions}>
-                                <button className={styles.btnSecondary} style={{ padding: "4px 9px", fontSize: 11 }}>
-                                    Export
-                                </button>
-                                <button className={styles.btnPrimary} style={{ padding: "4px 12px", fontSize: 11 }}>
-                                    Open
-                                </button>
-                            </div>
+                    {datasets.length === 0 && (
+                        <div style={{ padding: "24px", textAlign: "center", color: "var(--text3)", fontSize: 13 }}>
+                            No datasets yet — upload media to get started.
                         </div>
-                    ))}
+                    )}
+                    {datasets.map(d => {
+                        const pctReviewed = d.frame_count > 0 ? Math.round((d.reviewed_frames / d.frame_count) * 100) : 0;
+                        const isInProgress = d.status !== "ready" && d.status !== "failed";
+                        const dateLabel = isInProgress
+                            ? "In progress"
+                            : new Date(d.created_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+
+                        return (
+                            <div key={d.id}>
+                                <div className={styles.tableRow}>
+                                    <div>
+                                        <div className={styles.tableRowName}>{d.name ?? "Untitled dataset"}</div>
+                                        <div style={{ marginTop: 4 }}>
+                                            <ProgressBar
+                                                value={pctReviewed}
+                                                color={pctReviewed === 100 ? "var(--success)" : "var(--primary)"}
+                                                height={3}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className={`${styles.tableRowValue} ${styles.tableRowMono}`}>
+                                        {d.frame_count.toLocaleString()}
+                                    </div>
+                                    <div className={styles.tableRowValue}>
+                                        {d.reviewed_frames.toLocaleString()}{" "}
+                                        <span style={{ color: "var(--text3)", fontSize: 11 }}>
+                                            ({pctReviewed}%)
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: 11, color: "var(--text2)", fontWeight: 500, textAlign: "right" }}>
+                                        {d.upload_type === "image_batch" ? "Image Batch" : d.upload_type === "video" ? "Video" : "Image"}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: "var(--text3)", textAlign: "right" }}>
+                                        {dateLabel}
+                                    </div>
+                                    <div className={styles.tableActions}>
+                                        {/* <button className={styles.btnSecondary} style={{ padding: "4px 9px", fontSize: 11 }}>
+                                            Export
+                                        </button> */}
+                                        <button
+                                            className={styles.btnSecondary}
+                                            style={{ padding: "4px 9px", fontSize: 11 }}
+                                            onClick={() => {
+                                                if (expandedId === d.id) {
+                                                    setExpandedId(null);
+                                                    setFramesData(null);
+                                                } else {
+                                                    setExpandedId(d.id);
+                                                    fetchFrames(d.id, 1);
+                                                }
+                                            }}
+                                        >
+                                            {expandedId === d.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                        </button>
+                                    </div>
+                                </div>
+                                {expandedId === d.id && (
+                                    <div style={{
+                                        borderTop: "1px solid var(--border)",
+                                        padding: "12px 16px",
+                                        background: "var(--surface2)",
+                                    }}>
+                                        {loadingFrames ? (
+                                            <div style={{ fontSize: 12, color: "var(--text3)" }}>Loading…</div>
+                                        ) : framesData && (
+                                            <>
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+                                                    {framesData.frames.map(f => (
+                                                        <button
+                                                            key={f.id}
+                                                            onClick={() => onOpenInAnnotator(f.id)}
+                                                            style={{
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                gap: 8,
+                                                                padding: "6px 10px",
+                                                                borderRadius: 6,
+                                                                border: "1px solid var(--border)",
+                                                                background: "var(--surface)",
+                                                                cursor: "pointer",
+                                                                fontFamily: "inherit",
+                                                                textAlign: "left",
+                                                            }}
+                                                        >
+                                                            <span style={{
+                                                                width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                                                                background: f.is_approved ? "var(--success)" : "var(--text3)",
+                                                            }} />
+                                                            <span style={{ fontSize: 12, color: "var(--text1)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                {f.source_filename ?? "Unnamed frame"}
+                                                            </span>
+                                                            <span style={{ fontSize: 11, color: "var(--text3)", flexShrink: 0 }}>
+                                                                {f.is_approved ? "Reviewed" : "Unreviewed"}
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {framesData.total_pages > 1 && (
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                        <button
+                                                            onClick={() => fetchFrames(d.id, framesPage - 1)}
+                                                            disabled={framesPage === 1}
+                                                            className={styles.btnSecondary}
+                                                            style={{ padding: "3px 10px", fontSize: 11 }}
+                                                        >
+                                                            Prev
+                                                        </button>
+                                                        <span style={{ fontSize: 11, color: "var(--text3)" }}>
+                                                            {framesPage} / {framesData.total_pages}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => fetchFrames(d.id, framesPage + 1)}
+                                                            disabled={framesPage === framesData.total_pages}
+                                                            className={styles.btnSecondary}
+                                                            style={{ padding: "3px 10px", fontSize: 11 }}
+                                                        >
+                                                            Next
+                                                        </button>
+                                                        <span style={{ fontSize: 11, color: "var(--text3)", marginLeft: "auto" }}>
+                                                            {framesData.total} files total
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         </>
