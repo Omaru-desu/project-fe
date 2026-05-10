@@ -279,6 +279,8 @@ export async function getModelPerformance(projectId: string): Promise<ModelPerfo
         headers: await authHeaders(),
     });
     return handleResponse<ModelPerformanceResponse>(res);
+}
+
 export async function approveFrame(projectId: string, frameId: string): Promise<{ retrained: boolean }> {
     const res = await fetch(`${API_URL}/api/projects/${projectId}/frames/${frameId}/approve`, {
         method: 'POST',
