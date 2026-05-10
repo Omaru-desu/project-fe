@@ -357,6 +357,11 @@ export default function ProjectPage({ projectId }: Props) {
         }
     }
 
+    function handleModalDeleted(id: string) {
+        setDetections(prev => prev.filter(d => d.id !== id));
+        setReviewDetection(null);
+    }
+
     // Stats
     const reviewed = detections.filter(d => d.status === "reviewed").length;
     const needsReview = detections.filter(d => d.status === "needs_review").length;
@@ -472,8 +477,10 @@ export default function ProjectPage({ projectId }: Props) {
             {reviewDetection && (
                 <ReviewModal
                     detection={reviewDetection}
+                    projectId={projectId}
                     onClose={() => setReviewDetection(null)}
                     onMarkReviewed={handleModalReviewed}
+                    onDeleted={handleModalDeleted}
                 />
             )}
         </div>
@@ -510,7 +517,7 @@ function Sidebar({
         Icon: LucideIcon;
         badge?: number;
     }[] = [
-            { id: "gallery", label: "Images", Icon: ImageIcon },
+            { id: "gallery", label: "Detections", Icon: ImageIcon },
             { id: "annotate", label: "Annotate", Icon: Tag, badge: pendingCount },
             { id: "models", label: "Model Performance", Icon: Cpu },
             { id: "datasets", label: "Datasets", Icon: Database },
@@ -735,7 +742,7 @@ function GalleryScreen({
                 <div>
                     <div className={styles.topbarTitle}>{project.name}</div>
                     <div className={styles.topbarSubtitle}>
-                        {frames.length} frame{frames.length !== 1 ? "s" : ""}
+                        {totalDetections} detection{totalDetections !== 1 ? "s" : ""}
                         {totalDetections > 0 && ` · ${pct}% reviewed`}
                     </div>
                 </div>
@@ -2150,10 +2157,6 @@ function AnnotateReview({
                     </div>
                 </div>
                 <div className={styles.annotateHeaderRight}>
-                    <button className={styles.annotateBtnGhost}>
-                        <Download size={13} />
-                        Export
-                    </button>
                     <div className={styles.viewSwitch}>
                         <button onClick={onBack} className={styles.viewSwitchBtn}>
                             <LayoutGrid size={13} />
@@ -2268,10 +2271,18 @@ function AnnotateReview({
                             <ChevronRight size={13} />
                         </button>
 
-                        {activeId && activeType === "bbox" && (
+                        {activeId && (activeType === "bbox" || activeType === "det") && (
                             <>
                                 <span className={styles.annotateToolSep} />
-                                <button onClick={() => { if (activeId) handleDeleteBbox(activeId); }} className={`${styles.annotateTool} ${styles.annotateToolDanger}`} title="Delete selected (Del)">
+                                <button
+                                    onClick={() => {
+                                        if (!activeId) return;
+                                        if (activeType === "bbox") handleDeleteBbox(activeId);
+                                        else handleDeleteDetection(activeId);
+                                    }}
+                                    className={`${styles.annotateTool} ${styles.annotateToolDanger}`}
+                                    title="Delete selected (Del)"
+                                >
                                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                                         <polyline points="2,4 12,4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                                         <path d="M5 4V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.3" />
@@ -2794,21 +2805,6 @@ function AnnotateReview({
                                         : reviewedCount === 0
                                             ? "Mark all as correct"
                                             : "Mark remaining as correct"}
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setPendingLabels(new Map());
-                                        setEditingDetectionId(null);
-                                    }}
-                                    className={styles.btnSecondary}
-                                    style={{
-                                        width: "100%",
-                                        justifyContent: "center",
-                                        marginTop: 6,
-                                        fontSize: 12,
-                                    }}
-                                >
-                                    Cancel
                                 </button>
                             </>
                         )}
