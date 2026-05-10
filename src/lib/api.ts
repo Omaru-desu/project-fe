@@ -255,3 +255,31 @@ export async function deleteDetection(detectionId: string): Promise<void> {
     });
     return handleResponse<void>(res);
 }
+
+export async function reevaluateFrame(
+    projectId: string,
+    frameId: string,
+    prompt: string,
+): Promise<{
+    frame_id: string;
+    new_detections: number;
+    skipped_duplicates: number;
+    detection_ids: string[];
+    message?: string;
+}> {
+    const res = await fetch(
+        `${API_URL}/api/projects/${projectId}/frames/${frameId}/reevaluate`,
+        {
+            method: 'POST',
+            headers: {
+                ...(await authHeaders()),
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt,
+            }),
+        }
+    );
+
+    return handleResponse(res);
+}

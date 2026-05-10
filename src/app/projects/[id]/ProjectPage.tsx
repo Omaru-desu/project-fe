@@ -362,6 +362,12 @@ export default function ProjectPage({ projectId }: Props) {
         setReviewDetection(null);
     }
 
+    async function refreshFrames() {
+    const data = await api.getProjectFrames(projectId);
+    setFrames(data.frames as FrameRow[]);
+    rebuildDetections(data.frames as FrameRow[]);
+    }
+
     // Stats
     const reviewed = detections.filter(d => d.status === "reviewed").length;
     const needsReview = detections.filter(d => d.status === "needs_review").length;
@@ -461,6 +467,7 @@ export default function ProjectPage({ projectId }: Props) {
                         initialFrameId={annotateTarget?.frameId ?? null}
                         initialDetectionId={annotateTarget?.detectionId ?? null}
                         onEntered={() => setAnnotateTarget(null)}
+                        onFramesRefresh={refreshFrames}
                     />
                 )}
                 {screen === "models" && <ModelsScreen />}
@@ -1344,6 +1351,7 @@ function AnnotateScreen({
     initialDetectionId,
     onEntered,
     initialFrameId,
+    onFramesRefresh,
 }: {
     project: { name: string };
     frames: FrameRow[];
@@ -1351,6 +1359,7 @@ function AnnotateScreen({
     initialFrameId: string | null;
     initialDetectionId: string | null;
     onEntered: () => void;
+    onFramesRefresh: () => Promise<void>;
 }) {
     const readyFrames = frames.filter(f => f.status !== "queued");
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
@@ -1444,6 +1453,7 @@ function AnnotateScreen({
             onEntered={onEntered}
             onBack={() => setViewMode("grid")}
             onFrameChange={i => setSelectedFrameId(readyFrames[i]?.id ?? null)}
+            onFramesRefresh={onFramesRefresh} 
         />
     );
 }
@@ -1457,6 +1467,7 @@ function AnnotateReview({
     onFrameChange,
     initialDetectionId,
     onEntered,
+    onFramesRefresh,
 }: {
     project: { name: string };
     frames: FrameRow[];
@@ -1466,6 +1477,7 @@ function AnnotateReview({
     onFrameChange: (i: number) => void;
     initialDetectionId: string | null;
     onEntered: () => void;
+    onFramesRefresh: () => Promise<void>;
 }) {
     // refs
     const containerRef = useRef<HTMLDivElement>(null);
@@ -1529,6 +1541,57 @@ function AnnotateReview({
     const panRef = useRef<{ startCx: number; startCy: number; startOx: number; startOy: number } | null>(null);
     const [isPanning, setIsPanning] = useState(false);
     const didApplyInitial = useRef(false);
+
+    // reevaluation state
+    const [reevaluating, setReevaluating] = useState(false);
+    const [reevalResult, setReevalResult] = useState<string | null>(null);
+    const [reevalPrompt, setReevalPrompt] = useState("");
+
+    async function handleReevaluate() {
+        if (!frame) return;
+
+        if (!reevalPrompt.trim()) {
+            setSaveError("Please enter a prompt");
+            return;
+        }
+
+        setReevaluating(true);
+        setReevalResult(null);
+        setSaveError(null);
+
+        try {
+            const result = await api.reevaluateFrame(
+                projectId,
+                frame.id,
+                reevalPrompt.trim(),
+            );
+
+            if (result.new_detections === 0) {
+                setReevalResult("SAM3 found no new detections");
+            } else {
+                setReevalResult(
+                    `SAM3 found ${result.new_detections} new detection${result.new_detections !== 1 ? "s" : ""}`
+                );
+            }
+
+            // Reload detections for this frame
+            const data = await api.getFrameDetections(projectId, frame.id);
+
+            const dets = (data.detections ?? data).filter(
+                (d: any) => d.annotation_source !== "human"
+            );
+
+            setDetections(dets);
+            setLabelColorMap(buildLabelColorMap(dets));
+
+            await onFramesRefresh();
+
+        } catch (err: any) {
+            setSaveError(err?.message ?? "Re-evaluation failed");
+        } finally {
+            setReevaluating(false);
+        }
+    }
 
     // coord helpers
     function toCanvas(ix: number, iy: number) {
@@ -2741,14 +2804,54 @@ function AnnotateReview({
                             })}
 
                     </div>
+                        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, flexShrink: 0 }}>
+                            {reevalResult && (
+                                <div
+                                    style={{
+                                        fontSize: 11,
+                                        color: "#0F6E56",
+                                        background: "#E1F5EE",
+                                        border: "1px solid #5DCAA5",
+                                        borderRadius: 6,
+                                        padding: "6px 10px",
+                                        marginBottom: 8,
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    {reevalResult}
+                                </div>
+                            )}
 
-                    <div
-                        style={{
-                            borderTop: "1px solid var(--border)",
-                            paddingTop: 12,
-                            flexShrink: 0,
-                        }}
-                    >
+                            <input
+                                type="text"
+                                value={reevalPrompt}
+                                onChange={(e) => setReevalPrompt(e.target.value)}
+                                placeholder="Enter SAM3 prompt (e.g. sea urchin)"
+                                style={{
+                                    width: "100%",
+                                    padding: "8px 10px",
+                                    borderRadius: 6,
+                                    border: "1px solid var(--border)",
+                                    marginBottom: 8,
+                                    fontSize: 12,
+                                    background: "var(--surface)",
+                                    color: "var(--foreground)",
+                                    boxSizing: "border-box",
+                                }}
+                            />
+
+                            <button
+                                onClick={handleReevaluate}
+                                disabled={reevaluating || !reevalPrompt.trim()}
+                                className={styles.btnSecondary}
+                                style={{
+                                    width: "100%",
+                                    justifyContent: "center",
+                                    fontSize: 12,
+                                }}
+                            >
+                                {reevaluating ? "Running SAM3…" : "Re-evaluate with SAM3"}
+                            </button>
                         {saveError && (
                             <div
                                 style={{
