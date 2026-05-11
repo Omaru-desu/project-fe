@@ -44,6 +44,7 @@ export interface Detection {
     source_filename: string;
     frame_url: string;
     annotation_source: "machine" | "human";
+    track_id?: string | null;
 }
 
 export interface SemanticResult {
