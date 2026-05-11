@@ -1002,13 +1002,24 @@ function GalleryScreen({
                             return matchStatus && matchSearch;
                         });
 
-                        const sorted = sortConf === "high"
-                            ? [...visibleDetections].sort((a, b) => b.score - a.score)
-                            : sortConf === "low"
-                                ? [...visibleDetections].sort((a, b) => a.score - b.score)
-                                : visibleDetections;
+                        const trackGroups = new Map<string, Detection[]>();
+                        for (const d of visibleDetections) {
+                            const key = d.track_id ?? "__det_" + d.id;
+                            const arr = trackGroups.get(key);
+                            if (arr) arr.push(d);
+                            else trackGroups.set(key, [d]);
+                        }
+                        const representatives = Array.from(trackGroups.values()).map(group =>
+                            group.reduce((best, d) => (d.score ?? 0) > (best.score ?? 0) ? d : best)
+                        );
 
-                        if (visibleDetections.length === 0) {
+                        const sorted = sortConf === "high"
+                            ? [...representatives].sort((a, b) => b.score - a.score)
+                            : sortConf === "low"
+                                ? [...representatives].sort((a, b) => a.score - b.score)
+                                : representatives;
+
+                        if (representatives.length === 0) {
                             return (
                                 <div className={styles.emptyState}>
                                     {frames.length === 0
