@@ -1,4 +1,4 @@
-import { Project, CreateProjectInput, UpdateProjectInput } from '../types/project';
+import { Project, CreateProjectInput, UpdateProjectInput, Track, TrackEditAction } from '../types/project';
 import { createBrowserSupabaseClient } from './supabase/client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -367,4 +367,40 @@ export async function getUploadFrames(
     });
     return handleResponse<UploadFramesResponse>(res);
 
+}
+
+export async function listTracks(
+    projectId: string,
+    uploadId?: string,
+): Promise<{ tracks: Track[] }> {
+    const url = new URL(`${API_URL}/api/projects/${projectId}/tracks`);
+    if (uploadId) url.searchParams.set("upload_id", uploadId);
+    const res = await fetch(url.toString(), {
+        headers: await authHeaders(),
+    });
+    return handleResponse<{ tracks: Track[] }>(res);
+}
+
+export async function editDetectionTrack(
+    projectId: string,
+    detectionId: string,
+    body: TrackEditAction,
+): Promise<{
+    detection_id: string;
+    track_id: string | null;
+    previous_track_id: string | null;
+}> {
+    const res = await fetch(
+        `${API_URL}/api/projects/${projectId}/detections/${detectionId}/track`,
+        {
+            method: "PATCH",
+            headers: await authHeaders(),
+            body: JSON.stringify(body),
+        },
+    );
+    return handleResponse<{
+        detection_id: string;
+        track_id: string | null;
+        previous_track_id: string | null;
+    }>(res);
 }
