@@ -35,6 +35,7 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { Detection, SemanticResult } from "../../../types/project";
+import type { Track, TrackEditAction } from "../../../types/project";
 import * as api from "../../../lib/api";
 import type { BoundingBox } from "../../../lib/api";
 import { logout } from "../../login/actions";
@@ -1517,6 +1518,165 @@ function AnnotateScreen({
     );
 }
 
+function TrackEditor({
+    projectId,
+    detection,
+    uploadId,
+    onChanged,
+}: {
+    projectId: string;
+    detection: { id: string; track_id?: string | null };
+    uploadId: string;
+    onChanged: (next: { detection_id: string; track_id: string | null }) => void;
+}) {
+    const [tracks, setTracks] = useState<Track[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const currentTrackId = detection.track_id ?? null;
+
+    const fetchTracks = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await api.listTracks(projectId, uploadId);
+            setTracks(res.tracks);
+        } catch (e: any) {
+            setError(e?.message ?? "Failed to load tracks");
+        } finally {
+            setLoading(false);
+        }
+    }, [projectId, uploadId]);
+
+    useEffect(() => {
+        fetchTracks();
+    }, [fetchTracks]);
+
+    async function applyAction(action: TrackEditAction) {
+        setBusy(true);
+        setError(null);
+        try {
+            const res = await api.editDetectionTrack(projectId, detection.id, action);
+            onChanged({ detection_id: res.detection_id, track_id: res.track_id });
+            await fetchTracks();
+        } catch (e: any) {
+            setError(e?.message ?? "Failed to update track");
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    const shortHash = (id: string | null) => (id ? id.slice(0, 6) : "—");
+    const otherTracks = tracks.filter(t => t.track_id !== currentTrackId);
+
+    return (
+        <div
+            style={{
+                padding: "10px 12px",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                background: "var(--surface2)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                marginBottom: 8,
+            }}
+        >
+            <div
+                style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "var(--text3)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                }}
+            >
+                Track
+            </div>
+
+            <div style={{ fontSize: 12, color: "var(--text2)" }}>
+                {currentTrackId ? (
+                    <>
+                        Current: <code>{shortHash(currentTrackId)}</code>
+                    </>
+                ) : (
+                    <em>Untracked</em>
+                )}
+            </div>
+
+            <select
+                value=""
+                disabled={busy || loading || otherTracks.length === 0}
+                onChange={e => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    applyAction({ action: "assign", track_id: v });
+                }}
+                style={{
+                    fontSize: 12,
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    color: "var(--text1)",
+                }}
+            >
+                <option value="">
+                    {loading
+                        ? "Loading…"
+                        : otherTracks.length === 0
+                            ? "No other tracks in this upload"
+                            : "Assign to other track…"}
+                </option>
+                {otherTracks.map(t => (
+                    <option key={t.track_id} value={t.track_id}>
+                        {shortHash(t.track_id)} · {t.frame_count} frame{t.frame_count !== 1 ? "s" : ""}
+                        {t.display_label ? ` · ${t.display_label}` : ""}
+                    </option>
+                ))}
+            </select>
+
+            <div style={{ display: "flex", gap: 6 }}>
+                <button
+                    disabled={busy}
+                    onClick={() => applyAction({ action: "create" })}
+                    style={{
+                        flex: 1,
+                        fontSize: 12,
+                        padding: "5px 8px",
+                        borderRadius: 6,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        cursor: busy ? "default" : "pointer",
+                    }}
+                >
+                    + New track
+                </button>
+                <button
+                    disabled={busy || !currentTrackId}
+                    onClick={() => applyAction({ action: "remove" })}
+                    style={{
+                        flex: 1,
+                        fontSize: 12,
+                        padding: "5px 8px",
+                        borderRadius: 6,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        cursor: busy || !currentTrackId ? "default" : "pointer",
+                        opacity: !currentTrackId ? 0.5 : 1,
+                    }}
+                >
+                    Remove from track
+                </button>
+            </div>
+
+            {error && (
+                <div style={{ fontSize: 11, color: "#B91C1C" }}>{error}</div>
+            )}
+        </div>
+    );
+}
+
 function AnnotateReview({
     project,
     frames,
@@ -2512,6 +2672,25 @@ function AnnotateReview({
                             </button>
                         )}
                     </div>
+
+                    {(() => {
+                        const active = activeId && activeType === "det"
+                            ? detections.find((d: any) => d.id === activeId)
+                            : null;
+                        if (!active || !frame) return null;
+                        return (
+                            <TrackEditor
+                                projectId={projectId}
+                                detection={{ id: active.id, track_id: active.track_id ?? null }}
+                                uploadId={frame.upload_id}
+                                onChanged={({ detection_id, track_id }) => {
+                                    setDetections(prev =>
+                                        prev.map(d => (d.id === detection_id ? { ...d, track_id } : d))
+                                    );
+                                }}
+                            />
+                        );
+                    })()}
 
                     <div
                         style={{
