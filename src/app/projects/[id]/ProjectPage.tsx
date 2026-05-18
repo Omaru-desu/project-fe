@@ -1567,7 +1567,29 @@ function TrackEditor({
     }
 
     const shortHash = (id: string | null) => (id ? id.slice(0, 6) : "—");
-    const otherTracks = tracks.filter(t => t.track_id !== currentTrackId);
+
+    // The `tracks` view groups by (track_id, upload_id, project_id, label_id, display_label),
+    // so a single track_id can appear in multiple rows if its detections have different
+    // labels. Collapse to one entry per track_id, summing frame counts and keeping the
+    // dominant variant's representative crop + label.
+    const dedupedTracks = useMemo(() => {
+        const byTrackId = new Map<string, Track>();
+        for (const t of tracks) {
+            const existing = byTrackId.get(t.track_id);
+            if (!existing) {
+                byTrackId.set(t.track_id, { ...t });
+                continue;
+            }
+            const dominant = existing.frame_count >= t.frame_count ? existing : t;
+            byTrackId.set(t.track_id, {
+                ...dominant,
+                frame_count: existing.frame_count + t.frame_count,
+            });
+        }
+        return Array.from(byTrackId.values());
+    }, [tracks]);
+
+    const otherTracks = dedupedTracks.filter(t => t.track_id !== currentTrackId);
 
     return (
         <div
