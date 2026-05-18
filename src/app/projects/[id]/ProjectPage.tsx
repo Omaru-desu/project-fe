@@ -2967,46 +2967,70 @@ function AnnotateReview({
                         )}
                     </div>
 
-                    {(() => {
-                        if (!activeId || !frame) return null;
-                        if (activeType === "det") {
-                            const active = detections.find((d: any) => d.id === activeId);
-                            if (!active) return null;
-                            const accentColor = labelColorMap.get(active.display_label || "Unknown") ?? "#888";
-                            return (
-                                <TrackEditor
-                                    projectId={projectId}
-                                    detection={{ id: active.id, track_id: active.track_id ?? null }}
-                                    uploadId={frame.upload_id}
-                                    accentColor={accentColor}
-                                    onChanged={({ detection_id, track_id }) => {
-                                        setDetections(prev =>
-                                            prev.map(d => (d.id === detection_id ? { ...d, track_id } : d))
-                                        );
-                                    }}
-                                />
-                            );
-                        }
-                        if (activeType === "bbox") {
-                            const active = boundingBoxes.find(b => b.id === activeId);
-                            if (!active) return null;
-                            const accentColor = labelColorMap.get(active.display_label) ?? "#34d399";
-                            return (
-                                <TrackEditor
-                                    projectId={projectId}
-                                    detection={{ id: active.id, track_id: active.track_id ?? null }}
-                                    uploadId={frame.upload_id}
-                                    accentColor={accentColor}
-                                    onChanged={({ detection_id, track_id }) => {
-                                        setBoundingBoxes(prev =>
-                                            prev.map(b => (b.id === detection_id ? { ...b, track_id } : b))
-                                        );
-                                    }}
-                                />
-                            );
-                        }
-                        return null;
-                    })()}
+                    <div style={{ minHeight: 220, flexShrink: 0 }}>
+                        {(() => {
+                            if (!activeId || !frame) {
+                                return (
+                                    <div
+                                        style={{
+                                            height: 220,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            padding: 12,
+                                            borderRadius: 8,
+                                            border: "1px dashed var(--border)",
+                                            background: "var(--surface2)",
+                                            color: "var(--text3)",
+                                            fontSize: 12,
+                                            fontStyle: "italic",
+                                            textAlign: "center",
+                                            marginBottom: 10,
+                                        }}
+                                    >
+                                        Select a detection to edit its track
+                                    </div>
+                                );
+                            }
+                            if (activeType === "det") {
+                                const active = detections.find((d: any) => d.id === activeId);
+                                if (!active) return null;
+                                const accentColor = labelColorMap.get(active.display_label || "Unknown") ?? "#888";
+                                return (
+                                    <TrackEditor
+                                        projectId={projectId}
+                                        detection={{ id: active.id, track_id: active.track_id ?? null }}
+                                        uploadId={frame.upload_id}
+                                        accentColor={accentColor}
+                                        onChanged={({ detection_id, track_id }) => {
+                                            setDetections(prev =>
+                                                prev.map(d => (d.id === detection_id ? { ...d, track_id } : d))
+                                            );
+                                        }}
+                                    />
+                                );
+                            }
+                            if (activeType === "bbox") {
+                                const active = boundingBoxes.find(b => b.id === activeId);
+                                if (!active) return null;
+                                const accentColor = labelColorMap.get(active.display_label) ?? "#34d399";
+                                return (
+                                    <TrackEditor
+                                        projectId={projectId}
+                                        detection={{ id: active.id, track_id: active.track_id ?? null }}
+                                        uploadId={frame.upload_id}
+                                        accentColor={accentColor}
+                                        onChanged={({ detection_id, track_id }) => {
+                                            setBoundingBoxes(prev =>
+                                                prev.map(b => (b.id === detection_id ? { ...b, track_id } : b))
+                                            );
+                                        }}
+                                    />
+                                );
+                            }
+                            return null;
+                        })()}
+                    </div>
 
                     <div
                         style={{
@@ -3032,10 +3056,13 @@ function AnnotateReview({
                                     <div key={d.id}>
                                         <div
                                             onClick={() => {
-                                                setActiveId(active ? null : d.id);
-                                                setActiveType(active ? null : "det");
+                                                if (active) return;
+                                                setActiveId(d.id);
+                                                setActiveType("det");
                                             }}
                                             onDoubleClick={() => {
+                                                setActiveId(d.id);
+                                                setActiveType("det");
                                                 setEditingDetectionId(d.id);
                                                 if (!pendingLabels.has(d.id)) {
                                                     setPendingLabels(prev =>
@@ -3266,10 +3293,13 @@ function AnnotateReview({
                                     <div
                                         key={b.id}
                                         onClick={() => {
-                                            setActiveId(active ? null : b.id);
-                                            setActiveType(active ? null : "bbox");
+                                            if (active) return;
+                                            setActiveId(b.id);
+                                            setActiveType("bbox");
                                         }}
                                         onDoubleClick={() => {
+                                            setActiveId(b.id);
+                                            setActiveType("bbox");
                                             setEditingDetectionId(b.id);
                                             if (!pendingLabels.has(b.id)) {
                                                 setPendingLabels(prev => new Map(prev).set(b.id, b.display_label));
