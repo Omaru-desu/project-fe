@@ -1,5 +1,6 @@
 "use client";
 
+import Sam3Modal from "../../../components/projects/Sam3Modal";
 import {
     useState,
     useEffect,
@@ -2044,14 +2045,11 @@ function AnnotateReview({
     const [reevaluating, setReevaluating] = useState(false);
     const [reevalResult, setReevalResult] = useState<string | null>(null);
     const [reevalPrompt, setReevalPrompt] = useState("");
-
-    async function handleReevaluate() {
-        if (!frame) return;
-
-        if (!reevalPrompt.trim()) {
-            setSaveError("Please enter a prompt");
-            return;
-        }
+    const [showSam3Popup, setShowSam3Popup] = useState(false);
+    
+    async function handleReevaluate(prompt?: string) {
+        const finalPrompt = prompt ?? reevalPrompt;
+        if (!frame || !finalPrompt.trim()) return;
 
         setReevaluating(true);
         setReevalResult(null);
@@ -2061,7 +2059,7 @@ function AnnotateReview({
             const result = await api.reevaluateFrame(
                 projectId,
                 frame.id,
-                reevalPrompt.trim(),
+                finalPrompt.trim(),
             );
 
             if (result.new_detections === 0) {
@@ -2794,6 +2792,18 @@ function AnnotateReview({
                         </div>
                     )}
 
+                    {showSam3Popup && (
+                        <Sam3Modal
+                            onClose={() => setShowSam3Popup(false)}
+                            onRun={(prompt) => {
+                                setShowSam3Popup(false);
+                                handleReevaluate(prompt);
+                            }}
+                            reevaluating={reevaluating}
+                            reevalResult={reevalResult}
+                        />
+                    )}
+
                     {/* Floating toolbar */}
                     <div className={styles.annotateToolbar}>
                         <button onClick={() => setMode("select")} className={`${styles.annotateTool} ${mode === "select" ? styles.annotateToolActive : ""}`} title="Select / Move (S)">
@@ -2873,6 +2883,21 @@ function AnnotateReview({
                                 </button>
                             </>
                         )}
+                        <span className={styles.annotateToolSep} />
+                                <button
+                                    onClick={() => { setShowSam3Popup(v => !v); setReevalResult(null); }}
+                                    className={`${styles.annotateTool} ${showSam3Popup ? styles.annotateToolActive : ""}`}
+                                    title="Re-evaluate with SAM3"
+                                    style={{
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        letterSpacing: "0.03em",
+                                        padding: "0 6px",
+                                        minWidth: 36,
+                                    }}
+                                >
+                                    SAM3
+                                </button>
                     </div>
                 </div>
 
@@ -3415,53 +3440,6 @@ function AnnotateReview({
 
                     </div>
                         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, flexShrink: 0 }}>
-                            {reevalResult && (
-                                <div
-                                    style={{
-                                        fontSize: 11,
-                                        color: "#0F6E56",
-                                        background: "#E1F5EE",
-                                        border: "1px solid #5DCAA5",
-                                        borderRadius: 6,
-                                        padding: "6px 10px",
-                                        marginBottom: 8,
-                                        fontWeight: 500,
-                                    }}
-                                >
-                                    {reevalResult}
-                                </div>
-                            )}
-
-                            <input
-                                type="text"
-                                value={reevalPrompt}
-                                onChange={(e) => setReevalPrompt(e.target.value)}
-                                placeholder="Enter SAM3 prompt (e.g. sea urchin)"
-                                style={{
-                                    width: "100%",
-                                    padding: "8px 10px",
-                                    borderRadius: 6,
-                                    border: "1px solid var(--border)",
-                                    marginBottom: 8,
-                                    fontSize: 12,
-                                    background: "var(--surface)",
-                                    color: "var(--foreground)",
-                                    boxSizing: "border-box",
-                                }}
-                            />
-
-                            <button
-                                onClick={handleReevaluate}
-                                disabled={reevaluating || !reevalPrompt.trim()}
-                                className={styles.btnSecondary}
-                                style={{
-                                    width: "100%",
-                                    justifyContent: "center",
-                                    fontSize: 12,
-                                }}
-                            >
-                                {reevaluating ? "Running SAM3…" : "Re-evaluate with SAM3"}
-                            </button>
                         {saveError && (
                             <div
                                 style={{
