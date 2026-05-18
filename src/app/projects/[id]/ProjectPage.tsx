@@ -35,6 +35,7 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { Detection, SemanticResult } from "../../../types/project";
+import type { Track, TrackEditAction } from "../../../types/project";
 import * as api from "../../../lib/api";
 import type { BoundingBox } from "../../../lib/api";
 import { logout } from "../../login/actions";
@@ -1517,6 +1518,434 @@ function AnnotateScreen({
     );
 }
 
+function TrackEditor({
+    projectId,
+    detection,
+    uploadId,
+    accentColor,
+    onChanged,
+}: {
+    projectId: string;
+    detection: { id: string; track_id?: string | null };
+    uploadId: string;
+    accentColor: string;   // matches the bbox outline color on canvas (by detection label)
+    onChanged: (next: { detection_id: string; track_id: string | null }) => void;
+}) {
+    const [tracks, setTracks] = useState<Track[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const currentTrackId = detection.track_id ?? null;
+
+    const fetchTracks = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await api.listTracks(projectId, uploadId);
+            setTracks(res.tracks);
+        } catch (e: any) {
+            setError(e?.message ?? "Failed to load tracks");
+        } finally {
+            setLoading(false);
+        }
+    }, [projectId, uploadId]);
+
+    useEffect(() => {
+        fetchTracks();
+    }, [fetchTracks]);
+
+    useEffect(() => {
+        if (!dropdownOpen) return;
+        function onDocMouseDown(e: MouseEvent) {
+            if (!dropdownRef.current) return;
+            if (!dropdownRef.current.contains(e.target as Node)) setDropdownOpen(false);
+        }
+        function onDocKeyDown(e: KeyboardEvent) {
+            if (e.key === "Escape") setDropdownOpen(false);
+        }
+        document.addEventListener("mousedown", onDocMouseDown);
+        document.addEventListener("keydown", onDocKeyDown);
+        return () => {
+            document.removeEventListener("mousedown", onDocMouseDown);
+            document.removeEventListener("keydown", onDocKeyDown);
+        };
+    }, [dropdownOpen]);
+
+    async function applyAction(action: TrackEditAction) {
+        setBusy(true);
+        setError(null);
+        setDropdownOpen(false);
+        try {
+            const res = await api.editDetectionTrack(projectId, detection.id, action);
+            onChanged({ detection_id: res.detection_id, track_id: res.track_id });
+            await fetchTracks();
+        } catch (e: any) {
+            setError(e?.message ?? "Failed to update track");
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    const shortHash = (id: string | null) => (id ? id.slice(0, 6) : "—");
+
+    // The `tracks` view groups by (track_id, upload_id, project_id, label_id, display_label),
+    // so a single track_id can appear in multiple rows if its detections have different
+    // labels. Collapse to one entry per track_id, summing frame counts and keeping the
+    // dominant variant's representative crop + label.
+    const dedupedTracks = useMemo(() => {
+        const byTrackId = new Map<string, Track>();
+        for (const t of tracks) {
+            const existing = byTrackId.get(t.track_id);
+            if (!existing) {
+                byTrackId.set(t.track_id, { ...t });
+                continue;
+            }
+            const dominant = existing.frame_count >= t.frame_count ? existing : t;
+            byTrackId.set(t.track_id, {
+                ...dominant,
+                frame_count: existing.frame_count + t.frame_count,
+            });
+        }
+        return Array.from(byTrackId.values());
+    }, [tracks]);
+
+    const currentTrack = currentTrackId
+        ? dedupedTracks.find(t => t.track_id === currentTrackId) ?? null
+        : null;
+    const otherTracks = dedupedTracks.filter(t => t.track_id !== currentTrackId);
+    const noOtherTracks = otherTracks.length === 0;
+
+    return (
+        <div
+            style={{
+                position: "relative",
+                padding: 12,
+                border: "1px solid var(--border)",
+                borderLeft: `3px solid ${accentColor}`,
+                borderRadius: 8,
+                background: "var(--surface2)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                marginBottom: 10,
+            }}
+        >
+            <div
+                style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                }}
+            >
+                <div
+                    style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "var(--text3)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                    }}
+                >
+                    Track
+                </div>
+                {currentTrack && (
+                    <span
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: "var(--text3)",
+                            fontVariantNumeric: "tabular-nums",
+                        }}
+                    >
+                        {currentTrack.frame_count} frame{currentTrack.frame_count !== 1 ? "s" : ""}
+                    </span>
+                )}
+            </div>
+
+            <div
+                style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                }}
+            >
+                {currentTrack?.representative_crop_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                        src={currentTrack.representative_crop_url}
+                        alt="track representative"
+                        style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 4,
+                            objectFit: "cover",
+                            border: `1.5px solid ${accentColor}`,
+                            flexShrink: 0,
+                        }}
+                    />
+                ) : (
+                    <div
+                        style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 4,
+                            background: "var(--surface2)",
+                            border: "1.5px dashed var(--border)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 16,
+                            color: "var(--text3)",
+                            flexShrink: 0,
+                        }}
+                    >
+                        ?
+                    </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                    {currentTrackId ? (
+                        <>
+                            <span style={{ fontSize: 12, color: "var(--text2)" }}>Current track</span>
+                            <code
+                                style={{
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: "var(--text1)",
+                                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                                }}
+                            >
+                                {shortHash(currentTrackId)}
+                            </code>
+                        </>
+                    ) : (
+                        <>
+                            <span style={{ fontSize: 12, color: "var(--text3)", fontStyle: "italic" }}>
+                                Untracked
+                            </span>
+                            <span style={{ fontSize: 11, color: "var(--text3)" }}>
+                                Not assigned to any track
+                            </span>
+                        </>
+                    )}
+                </div>
+            </div>
+
+            <div ref={dropdownRef} style={{ position: "relative" }}>
+                <button
+                    type="button"
+                    disabled={busy || loading || noOtherTracks}
+                    onClick={() => setDropdownOpen(o => !o)}
+                    style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        fontSize: 12,
+                        fontFamily: "inherit",
+                        padding: "7px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${dropdownOpen ? "var(--primary, #378ADD)" : "var(--border)"}`,
+                        background: "var(--surface)",
+                        color: noOtherTracks ? "var(--text3)" : "var(--text1)",
+                        cursor: busy || loading || noOtherTracks ? "default" : "pointer",
+                        textAlign: "left",
+                        transition: "border-color 0.15s",
+                    }}
+                >
+                    <span>
+                        {loading
+                            ? "Loading…"
+                            : noOtherTracks
+                                ? "No other tracks in this upload"
+                                : "Assign to other track…"}
+                    </span>
+                    <span
+                        style={{
+                            fontSize: 10,
+                            color: "var(--text3)",
+                            transform: dropdownOpen ? "rotate(180deg)" : "none",
+                            transition: "transform 0.15s",
+                        }}
+                    >
+                        ▾
+                    </span>
+                </button>
+
+                {dropdownOpen && !noOtherTracks && (
+                    <div
+                        role="listbox"
+                        style={{
+                            position: "absolute",
+                            top: "calc(100% + 4px)",
+                            left: 0,
+                            right: 0,
+                            maxHeight: 280,
+                            overflowY: "auto",
+                            background: "var(--surface)",
+                            border: "1px solid var(--border)",
+                            borderRadius: 6,
+                            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                            zIndex: 20,
+                            padding: 4,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 2,
+                        }}
+                    >
+                        {otherTracks.map(t => (
+                            <button
+                                key={t.track_id}
+                                type="button"
+                                onClick={() => applyAction({ action: "assign", track_id: t.track_id })}
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    padding: "6px 8px",
+                                    borderRadius: 4,
+                                    border: "none",
+                                    background: "transparent",
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                    fontFamily: "inherit",
+                                    width: "100%",
+                                    transition: "background 0.1s",
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "var(--surface2)")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                            >
+                                {t.representative_crop_url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                        src={t.representative_crop_url}
+                                        alt={`track ${t.track_id}`}
+                                        style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 4,
+                                            objectFit: "cover",
+                                            flexShrink: 0,
+                                        }}
+                                    />
+                                ) : (
+                                    <div
+                                        style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 4,
+                                            background: "var(--surface2)",
+                                            flexShrink: 0,
+                                        }}
+                                    />
+                                )}
+                                <div style={{ display: "flex", flexDirection: "column", minWidth: 0, gap: 1 }}>
+                                    <code
+                                        style={{
+                                            fontSize: 12,
+                                            fontWeight: 600,
+                                            color: "var(--text1)",
+                                            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                                        }}
+                                    >
+                                        {shortHash(t.track_id)}
+                                    </code>
+                                    <span
+                                        style={{
+                                            fontSize: 11,
+                                            color: "var(--text3)",
+                                            fontVariantNumeric: "tabular-nums",
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                        }}
+                                    >
+                                        {t.frame_count} frame{t.frame_count !== 1 ? "s" : ""}
+                                        {t.display_label ? ` · ${t.display_label}` : ""}
+                                    </span>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            <div style={{ display: "flex", gap: 6 }}>
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => applyAction({ action: "create" })}
+                    style={{
+                        flex: 1,
+                        fontSize: 12,
+                        fontFamily: "inherit",
+                        fontWeight: 500,
+                        padding: "7px 10px",
+                        borderRadius: 6,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        color: "var(--text1)",
+                        cursor: busy ? "default" : "pointer",
+                        transition: "background 0.1s, border-color 0.1s",
+                    }}
+                    onMouseEnter={e => {
+                        if (busy) return;
+                        e.currentTarget.style.background = "var(--surface2)";
+                        e.currentTarget.style.borderColor = "var(--text3)";
+                    }}
+                    onMouseLeave={e => {
+                        e.currentTarget.style.background = "var(--surface)";
+                        e.currentTarget.style.borderColor = "var(--border)";
+                    }}
+                >
+                    + New track
+                </button>
+                <button
+                    type="button"
+                    disabled={busy || !currentTrackId}
+                    onClick={() => applyAction({ action: "remove" })}
+                    style={{
+                        flex: 1,
+                        fontSize: 12,
+                        fontFamily: "inherit",
+                        fontWeight: 500,
+                        padding: "7px 10px",
+                        borderRadius: 6,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        color: !currentTrackId ? "var(--text3)" : "#B91C1C",
+                        cursor: busy || !currentTrackId ? "default" : "pointer",
+                        opacity: !currentTrackId ? 0.5 : 1,
+                        transition: "background 0.1s, border-color 0.1s",
+                    }}
+                    onMouseEnter={e => {
+                        if (busy || !currentTrackId) return;
+                        e.currentTarget.style.background = "#FEF2F2";
+                        e.currentTarget.style.borderColor = "#FCA5A5";
+                    }}
+                    onMouseLeave={e => {
+                        e.currentTarget.style.background = "var(--surface)";
+                        e.currentTarget.style.borderColor = "var(--border)";
+                    }}
+                >
+                    Remove from track
+                </button>
+            </div>
+
+            {error && (
+                <div style={{ fontSize: 11, color: "#B91C1C" }}>{error}</div>
+            )}
+        </div>
+    );
+}
+
 function AnnotateReview({
     project,
     frames,
@@ -2512,6 +2941,47 @@ function AnnotateReview({
                             </button>
                         )}
                     </div>
+
+                    {(() => {
+                        if (!activeId || !frame) return null;
+                        if (activeType === "det") {
+                            const active = detections.find((d: any) => d.id === activeId);
+                            if (!active) return null;
+                            const accentColor = labelColorMap.get(active.display_label || "Unknown") ?? "#888";
+                            return (
+                                <TrackEditor
+                                    projectId={projectId}
+                                    detection={{ id: active.id, track_id: active.track_id ?? null }}
+                                    uploadId={frame.upload_id}
+                                    accentColor={accentColor}
+                                    onChanged={({ detection_id, track_id }) => {
+                                        setDetections(prev =>
+                                            prev.map(d => (d.id === detection_id ? { ...d, track_id } : d))
+                                        );
+                                    }}
+                                />
+                            );
+                        }
+                        if (activeType === "bbox") {
+                            const active = boundingBoxes.find(b => b.id === activeId);
+                            if (!active) return null;
+                            const accentColor = labelColorMap.get(active.display_label) ?? "#34d399";
+                            return (
+                                <TrackEditor
+                                    projectId={projectId}
+                                    detection={{ id: active.id, track_id: active.track_id ?? null }}
+                                    uploadId={frame.upload_id}
+                                    accentColor={accentColor}
+                                    onChanged={({ detection_id, track_id }) => {
+                                        setBoundingBoxes(prev =>
+                                            prev.map(b => (b.id === detection_id ? { ...b, track_id } : b))
+                                        );
+                                    }}
+                                />
+                            );
+                        }
+                        return null;
+                    })()}
 
                     <div
                         style={{

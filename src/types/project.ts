@@ -74,3 +74,16 @@ export interface UploadFile {
     status: FileUploadStatus;
     progress: number;
 }
+
+export interface Track {
+    track_id: string;
+    upload_id: string;
+    frame_count: number;
+    representative_crop_url: string | null;
+    display_label?: string | null;   // populated only if the `tracks` view exposes it; tolerate undefined
+}
+
+export type TrackEditAction =
+    | { action: "assign"; track_id: string }
+    | { action: "create" }
+    | { action: "remove" };
