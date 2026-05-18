@@ -2696,22 +2696,40 @@ function AnnotateReview({
                     </div>
 
                     {(() => {
-                        const active = activeId && activeType === "det"
-                            ? detections.find((d: any) => d.id === activeId)
-                            : null;
-                        if (!active || !frame) return null;
-                        return (
-                            <TrackEditor
-                                projectId={projectId}
-                                detection={{ id: active.id, track_id: active.track_id ?? null }}
-                                uploadId={frame.upload_id}
-                                onChanged={({ detection_id, track_id }) => {
-                                    setDetections(prev =>
-                                        prev.map(d => (d.id === detection_id ? { ...d, track_id } : d))
-                                    );
-                                }}
-                            />
-                        );
+                        if (!activeId || !frame) return null;
+                        if (activeType === "det") {
+                            const active = detections.find((d: any) => d.id === activeId);
+                            if (!active) return null;
+                            return (
+                                <TrackEditor
+                                    projectId={projectId}
+                                    detection={{ id: active.id, track_id: active.track_id ?? null }}
+                                    uploadId={frame.upload_id}
+                                    onChanged={({ detection_id, track_id }) => {
+                                        setDetections(prev =>
+                                            prev.map(d => (d.id === detection_id ? { ...d, track_id } : d))
+                                        );
+                                    }}
+                                />
+                            );
+                        }
+                        if (activeType === "bbox") {
+                            const active = boundingBoxes.find(b => b.id === activeId);
+                            if (!active) return null;
+                            return (
+                                <TrackEditor
+                                    projectId={projectId}
+                                    detection={{ id: active.id, track_id: active.track_id ?? null }}
+                                    uploadId={frame.upload_id}
+                                    onChanged={({ detection_id, track_id }) => {
+                                        setBoundingBoxes(prev =>
+                                            prev.map(b => (b.id === detection_id ? { ...b, track_id } : b))
+                                        );
+                                    }}
+                                />
+                            );
+                        }
+                        return null;
                     })()}
 
                     <div

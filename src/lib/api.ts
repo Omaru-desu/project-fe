@@ -181,6 +181,7 @@ export interface BoundingBox {
     status: string;
     annotation_source: "machine" | "human";
     created_at: string;
+    track_id?: string | null;
 }
 
 export async function getBoundingBoxes(
