@@ -102,6 +102,7 @@ export async function getProjectFrames(projectId: string): Promise<{
             display_label: string;
             score: number;
             annotation_source: "machine" | "human";
+            is_deleted: boolean; 
         }[];
         frame_url: string;
         is_approved: boolean;
