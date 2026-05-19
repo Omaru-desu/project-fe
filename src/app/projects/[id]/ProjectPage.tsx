@@ -2800,7 +2800,6 @@ function AnnotateReview({
                         <Sam3Modal
                             onClose={() => setShowSam3Popup(false)}
                             onRun={(prompt) => {
-                                setShowSam3Popup(false);
                                 handleReevaluate(prompt);
                             }}
                             reevaluating={reevaluating}
@@ -3179,6 +3178,21 @@ function AnnotateReview({
                                                             edited
                                                         </span>
                                                     )}
+                                                </span>
+                                            )}
+                                            {d.annotation_source === "sam3" && !isEditing && (
+                                                <span style={{
+                                                    fontSize: 9,
+                                                    fontWeight: 700,
+                                                    padding: "1px 6px",
+                                                    borderRadius: 99,
+                                                    background: "rgba(99,102,241,0.12)",
+                                                    color: "#6366f1",
+                                                    flexShrink: 0,
+                                                    letterSpacing: "0.04em",
+                                                    textTransform: "uppercase",
+                                                }}>
+                                                    sam3
                                                 </span>
                                             )}
                                             {d.score != null && !reviewedWithoutScore.has(d.id) && !isEditing && (

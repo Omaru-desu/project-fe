@@ -50,7 +50,7 @@ export default function Sam3Modal({ onClose, onRun, reevaluating, reevalResult }
                     }
                     if (e.key === "Escape") onClose();
                 }}
-                placeholder="e.g. coral, sea urchin"
+                placeholder="e.g. corals, sharks"
                 style={{
                     border: "1.5px solid var(--border)",
                     borderRadius: 7,
@@ -91,7 +91,7 @@ export default function Sam3Modal({ onClose, onRun, reevaluating, reevalResult }
                         fontFamily: "inherit",
                     }}
                 >
-                    Cancel
+                    Close
                 </button>
                 <button
                     onClick={() => { if (prompt.trim()) onRun(prompt.trim()); }}
