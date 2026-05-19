@@ -4098,7 +4098,7 @@ function DatasetsScreen({
                                         </span>
                                     </div>
                                     <div style={{ fontSize: 11, color: "var(--text2)", fontWeight: 500, textAlign: "right" }}>
-                                        {d.upload_type === "image_batch" ? "Image Batch" : d.upload_type === "video" ? "Video" : "Image"}
+                                        {d.upload_type === "image_batch" ? "Image Batch" : d.upload_type === "video" ? "Video" : d.upload_type === "rosbag" ? "ROS Bag" : "Image"}
                                     </div>
                                     <div style={{ fontSize: 11, color: "var(--text3)", textAlign: "right" }}>
                                         {dateLabel}
