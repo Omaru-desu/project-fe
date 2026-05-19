@@ -75,6 +75,7 @@ interface FrameRow {
         display_label: string;
         score: number;
         annotation_source: "machine" | "human";
+        is_deleted: boolean;
     }[];
     frame_url: string;
 }
@@ -203,6 +204,7 @@ export default function ProjectPage({ projectId }: Props) {
         const all: Detection[] = [];
         for (const f of rows) {
             for (const det of f.detections) {
+                if (det.is_deleted) continue;
                 all.push({
                     ...det,
                     frame_id: f.id,
@@ -2074,7 +2076,7 @@ function AnnotateReview({
             const data = await api.getFrameDetections(projectId, frame.id);
 
             const dets = (data.detections ?? data).filter(
-                (d: any) => d.annotation_source !== "human"
+                (d: any) => d.annotation_source !== "human" && !d.is_deleted
             );
 
             setDetections(dets);
@@ -2213,7 +2215,9 @@ function AnnotateReview({
         api.getFrameDetections(projectId, frame.id, ac.signal)
             .then(data => {
                 if (ac.signal.aborted) return;
-                const dets = (data.detections ?? data).filter((d: any) => d.annotation_source !== "human");
+                const dets = (data.detections ?? data).filter((d: any) => 
+                    d.annotation_source !== "human" && !d.is_deleted
+                );
                 setDetections(dets);
                 if (!didApplyInitial.current && initialDetectionId) {
                     const target = dets.find((d: any) => d.id === initialDetectionId);
