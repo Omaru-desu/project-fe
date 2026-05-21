@@ -4,6 +4,7 @@ import { useFormStatus } from "react-dom";
 import { useState, useActionState } from "react";
 import { Mail, Lock, User, Building2 } from "lucide-react";
 import { login, register } from "./actions";
+import { useTransition } from "react";
 
 type Tab = "login" | "register";
 
@@ -11,6 +12,9 @@ export function LoginForm() {
     const [loginState, loginAction] = useActionState(login, undefined);
     const [registerState, registerAction] = useActionState(register, undefined);
     const [tab, setTab] = useState<Tab>("login");
+    const [showConsent, setShowConsent] = useState(false);
+    const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
+    const [, startTransition] = useTransition();
 
     return (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: "100vh", fontFamily: "var(--font-inter, system-ui, sans-serif)" }}>
@@ -148,7 +152,33 @@ export function LoginForm() {
                         <>
                             <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.015em", color: "#1f2547", margin: "0 0 6px" }}>Create account</h2>
                             <p style={{ fontSize: 13.5, color: "#8a90ad", margin: "0 0 24px" }}>Join the OMarine community</p>
-                            <form action={registerAction} style={{ display: "flex", flexDirection: "column" }}>
+                            <form 
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    const formData = new FormData(e.currentTarget);
+
+                                    // Basic validation before showing consent
+                                    const firstName = formData.get("firstName") as string;
+                                    const lastName = formData.get("lastName") as string;
+                                    const email = formData.get("email") as string;
+                                    const password = formData.get("password") as string;
+
+                                    if (!firstName?.trim() || !lastName?.trim() || !email?.trim() || !password?.trim()) {
+                                        // Let server action handle the validation errors normally
+                                        startTransition(() => registerAction(formData));
+                                        return;
+                                    }
+
+                                    if (password.length < 8) {
+                                        startTransition(() => registerAction(formData));
+                                        return;
+                                    }
+
+                                    setPendingFormData(formData);
+                                    setShowConsent(true);
+                                }}
+                                style={{ display: "flex", flexDirection: "column" }}
+                            >
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                                     <Field label="First name" name="firstName" type="text" placeholder="Jane" icon={<User size={15} />} error={registerState?.errors?.firstName?.[0]} />
                                     <Field label="Last name" name="lastName" type="text" placeholder="Lambert" error={registerState?.errors?.lastName?.[0]} />
@@ -165,6 +195,18 @@ export function LoginForm() {
                                 </button>
                             </p>
                         </>
+                    )}
+
+                    {showConsent && pendingFormData && (
+                        <ConsentModal
+                            onClose={() => setShowConsent(false)}
+                            onAgree={() => {
+                                setShowConsent(false);
+                                startTransition(() => {
+                                    registerAction(pendingFormData!);
+                                });
+                            }}
+                        />
                     )}
                 </div>
             </section>
@@ -260,5 +302,123 @@ function SubmitButton({ label }: { label: string }) {
         >
             {pending ? "Loading…" : label}
         </button>
+    );
+}
+
+function ConsentModal({ onClose, onAgree }: { onClose: () => void; onAgree: () => void }) {
+    const [checked, setChecked] = useState(false);
+
+    return (
+        <div style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            background: "rgba(20,30,60,0.55)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+        }}>
+            <div style={{
+                background: "#fff",
+                borderRadius: 16,
+                padding: 32,
+                width: "100%",
+                maxWidth: 460,
+                boxShadow: "0 20px 60px rgba(20,30,80,0.18)",
+            }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#1f2547", marginBottom: 8 }}>
+                    Data & Privacy Consent
+                </div>
+                <div style={{ fontSize: 13, color: "#5b6280", lineHeight: 1.65, marginBottom: 20 }}>
+                    Before creating your account, please read and acknowledge the following:
+                </div>
+
+                <div style={{
+                    background: "#f3f4fa",
+                    borderRadius: 10,
+                    padding: "14px 16px",
+                    marginBottom: 20,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                    fontSize: 13,
+                    color: "#3a4060",
+                    lineHeight: 1.6,
+                }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                        <span style={{ marginTop: 2, flexShrink: 0, color: "#4f63d2" }}></span>
+                        <span><strong>Data storage:</strong> Underwater imagery and annotation data you upload will be stored securely with encryption.</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                        <span style={{ marginTop: 2, flexShrink: 0, color: "#4f63d2" }}></span>
+                        <span><strong>Personal information:</strong> Only your email, display name, and organisation are stored. This information is not shared with third parties and is used solely for authentication and account management.</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                        <span style={{ marginTop: 2, flexShrink: 0, color: "#4f63d2" }}></span>
+                        <span><strong>Model training:</strong> Annotations you approve may be used to retrain detection models within your project. Data is not shared across projects or organisations.</span>
+                    </div>
+                </div>
+
+                <label style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    cursor: "pointer",
+                    marginBottom: 24,
+                    fontSize: 13,
+                    color: "#3a4060",
+                    lineHeight: 1.5,
+                }}>
+                    <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => setChecked(e.target.checked)}
+                        style={{ marginTop: 2, accentColor: "#4f63d2", width: 15, height: 15, flexShrink: 0, cursor: "pointer" }}
+                    />
+                    I have read and agree to the data collection and privacy terms described above.
+                </label>
+
+                <div style={{ display: "flex", gap: 10 }}>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            flex: 1,
+                            height: 42,
+                            border: "1.5px solid #e0e3f0",
+                            borderRadius: 9,
+                            background: "#fff",
+                            color: "#5b6280",
+                            fontFamily: "inherit",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                        }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={onAgree}
+                        disabled={!checked}
+                        style={{
+                            flex: 1,
+                            height: 42,
+                            border: 0,
+                            borderRadius: 9,
+                            background: checked ? "#4f63d2" : "#c8ccee",
+                            color: "#fff",
+                            fontFamily: "inherit",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: checked ? "pointer" : "not-allowed",
+                            transition: "background 0.15s",
+                        }}
+                    >
+                        I Agree — Create Account
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }
