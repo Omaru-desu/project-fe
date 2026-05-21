@@ -63,7 +63,7 @@ export async function login(prevState: unknown, formData: FormData) {
 export async function logout() {
     const supabase = await createServerSupabaseClient()
     await supabase.auth.signOut()
-    redirect("/login")
+    redirect("/")
 }
 
 export async function register(prevState: unknown, formData: FormData) {

@@ -230,8 +230,11 @@ export default function ProjectPage({ projectId }: Props) {
         api.getProjectFrames(projectId)
             .then(async data => {
                 if (cancelled) return;
-                setFrames(data.frames as FrameRow[]);
-                rebuildDetections(data.frames as FrameRow[]);
+                const sorted = [...(data.frames as FrameRow[])].sort((a, b) =>
+                    a.source_filename.localeCompare(b.source_filename)
+                );
+                setFrames(sorted);
+                rebuildDetections(sorted);
 
                 const uploadIds = [...new Set(
                     data.frames.map((f: any) => f.upload_id).filter(Boolean)
@@ -297,8 +300,11 @@ export default function ProjectPage({ projectId }: Props) {
                 ));
 
                 const data = await api.getProjectFrames(projectId);
-                setFrames(data.frames as FrameRow[]);
-                rebuildDetections(data.frames as FrameRow[]);
+                const sorted = [...(data.frames as FrameRow[])].sort((a, b) =>
+                    a.source_filename.localeCompare(b.source_filename)
+                );
+                setFrames(sorted);
+                rebuildDetections(sorted);
 
                 const done = status.status === "segmented" ||
                     status.status === "failed" ||
@@ -357,7 +363,13 @@ export default function ProjectPage({ projectId }: Props) {
         try {
             const res = await api.getSimilarDetections(projectId, detectionId, 30);
             if (seq !== semanticSeqRef.current) return;
-            setSemanticResults(res.results);
+            const sourceTrackId = detections.find(d => d.id === detectionId)?.track_id ?? null;
+            let filtered = res.results;
+            if (sourceTrackId) {
+                const trackByDetId = new Map(detections.map(d => [d.id, d.track_id ?? null]));
+                filtered = res.results.filter(r => trackByDetId.get(r.detection_id) !== sourceTrackId);
+            }
+            setSemanticResults(filtered);
         } catch (err: unknown) {
             if (seq !== semanticSeqRef.current) return;
             setSemanticError(err instanceof Error ? err.message : "Similar search failed");
@@ -374,8 +386,11 @@ export default function ProjectPage({ projectId }: Props) {
 
     async function refreshFrames() {
     const data = await api.getProjectFrames(projectId);
-    setFrames(data.frames as FrameRow[]);
-    rebuildDetections(data.frames as FrameRow[]);
+    const sorted = [...(data.frames as FrameRow[])].sort((a, b) =>
+        a.source_filename.localeCompare(b.source_filename)
+    );
+    setFrames(sorted);
+    rebuildDetections(sorted);
     }
 
     // Stats
@@ -485,7 +500,7 @@ export default function ProjectPage({ projectId }: Props) {
                         hasCheckpoint={project.has_checkpoint ?? true}
                     />
                 )}
-                {screen === "models" && <ModelsScreen projectId={projectId}/>}
+                {screen === "models" && <ModelsScreen projectId={projectId} />}
                 {screen === "datasets" && (
                     <DatasetsScreen
                         projectId={projectId}
@@ -739,7 +754,7 @@ function GalleryScreen({
     onSemanticClear,
     onFindSimilar,
 }: {
-    project: { name: string };
+    project: { name: string; model_type?: "pretrained" | "custom" };
     frames: FrameRow[];
     frameStatus: Record<string, "reviewed" | "needs_review" | "no_detections">;
     detectionsByFrame: Detection[];
@@ -801,7 +816,7 @@ function GalleryScreen({
                     </div>
                 </div>
                 <div className={styles.topbarActions}>
-                    <button onClick={onUpload} className={styles.btnSecondary}>
+                    <button onClick={onUpload} className={styles.btnPrimary}>
                         <Plus size={13} />
                         Upload media
                     </button>
@@ -994,6 +1009,7 @@ function GalleryScreen({
                         }
 
                         const visibleDetections = detectionsByFrame.filter(d => {
+                            const matchScore = Math.round((d.score ?? 0) * 100) > 0;
                             const matchStatus =
                                 statusFilter === "all" ||
                                 (statusFilter === "reviewed" && d.status === "reviewed") ||
@@ -1004,7 +1020,7 @@ function GalleryScreen({
                                 d.source_filename.toLowerCase().includes(q) ||
                                 (d.display_label ?? "").toLowerCase().includes(q) ||
                                 (d.taxon ?? "").toLowerCase().includes(q);
-                            return matchStatus && matchSearch;
+                            return matchScore && matchStatus && matchSearch;
                         });
 
                         const trackGroups = new Map<string, Detection[]>();
@@ -1023,58 +1039,57 @@ function GalleryScreen({
                             : sortConf === "low"
                                 ? [...representatives].sort((a, b) => a.score - b.score)
                                 : representatives;
-
                         if (representatives.length === 0) {
                             const isProcessing = processingList.some(p => p.status === "processing");
                             const noMedia = frames.length === 0 && !isProcessing;
+                            const isCustomWaiting =
+                                project.model_type === "custom" &&
+                                !noMedia &&
+                                !isProcessing &&
+                                statusFilter === "all" &&
+                                !search.trim();
 
                             return (
-                                <div style={{ 
-                                    width: "100%", 
-                                    display: "flex", 
-                                    alignItems: "center", 
-                                    justifyContent: "center" 
-                                }}>
-                                    <div className={styles.emptyStateRich}>
-                                        <div className={styles.emptyStateIcon}>
-                                            {noMedia ? (
-                                                <ImageIcon size={28} color="#8a9bb8" />
-                                            ) : isProcessing ? (
-                                                <Activity size={28} color="#8a9bb8" />
-                                            ) : (
-                                                <Search size={28} color="#8a9bb8" />
-                                            )}
-                                        </div>
-                                        <div className={styles.emptyStateTitle}>
-                                            {noMedia
-                                                ? "No media uploaded yet"
-                                                : isProcessing
-                                                ? "Waiting for frames…"
-                                                : "No detections match this filter"}
-                                        </div>
-                                        <div className={styles.emptyStateSub}>
-                                            {noMedia
-                                                ? "Upload video or images to start detecting and annotating marine life"
-                                                : isProcessing
-                                                ? "Frames are being processed — results will appear shortly"
-                                                : "Try adjusting your search or clearing the active filter"}
-                                        </div>
-                                        {noMedia && (
-                                            <button onClick={onUpload} className={styles.btnSecondary} style={{ marginTop: 8 }}>
-                                                <Plus size={13} />
-                                                Upload media
-                                            </button>
-                                        )}
-                                        {!noMedia && !isProcessing && statusFilter !== "all" && (
-                                            <button
-                                                onClick={() => setStatusFilter("all")}
-                                                className={styles.btnSecondary}
-                                                style={{ marginTop: 8 }}
-                                            >
-                                                Clear filter
-                                            </button>
+                                <div className={styles.emptyStateRich}>
+                                    <div className={styles.emptyStateIcon}>
+                                        {noMedia ? (
+                                            <ImageIcon size={28} color="#8a9bb8" />
+                                        ) : isProcessing ? (
+                                            <Activity size={28} color="#8a9bb8" />
+                                        ) : isCustomWaiting ? (
+                                            <Cpu size={28} color="#8a9bb8" />
+                                        ) : (
+                                            <Search size={28} color="#8a9bb8" />
                                         )}
                                     </div>
+                                    <div className={styles.emptyStateTitle}>
+                                        {noMedia
+                                            ? "No media uploaded yet"
+                                            : isProcessing
+                                                ? "Waiting for frames…"
+                                                : isCustomWaiting
+                                                    ? "Custom model is still learning"
+                                                    : "No detections match this filter"}
+                                    </div>
+                                    <div className={styles.emptyStateSub}>
+                                        {noMedia
+                                            ? "Upload video or images to start detecting and annotating marine life"
+                                            : isProcessing
+                                                ? "Frames are being processed — results will appear shortly"
+                                                : isCustomWaiting
+                                                    ? "Detections will appear here once your custom model has been retrained. Annotate and approve at least 10 frames to trigger the first retraining."
+                                                    : "Try adjusting your search or clearing the active filter"}
+                                    </div>
+
+                                    {!noMedia && !isProcessing && !isCustomWaiting && statusFilter !== "all" && (
+                                        <button
+                                            onClick={() => setStatusFilter("all")}
+                                            className={styles.btnSecondary}
+                                            style={{ marginTop: 8 }}
+                                        >
+                                            Clear filter
+                                        </button>
+                                    )}
                                 </div>
                             );
                         }
@@ -1466,7 +1481,9 @@ function AnnotateScreen({
     onRetrain: () => void;
     hasCheckpoint: boolean;
 }) {
-    const readyFrames = frames.filter(f => f.status !== "queued");
+    const readyFrames = frames
+        .filter(f => f.status !== "queued")
+        .sort((a, b) => a.source_filename.localeCompare(b.source_filename, undefined, { numeric: true }));
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
         initialFrameId ?? readyFrames[0]?.id ?? null
     );
@@ -1499,50 +1516,76 @@ function AnnotateScreen({
                         </div>
                     </div>
                 </div>
-                <div style={{ flex: 1, padding: "20px 24px", overflow: "auto" }}>
-                    <div style={{ fontSize: 13, color: "var(--text3)", marginBottom: 12 }}>
-                        {readyFrames.length} frame{readyFrames.length !== 1 ? "s" : ""} — click to annotate
-                    </div>
-                    <div
-                        className="grid"
-                        style={{
-                            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-                            gap: 12,
-                        }}
-                    >
-                        {readyFrames.map(f => {
-                            const isSelected = f.id === selectedFrameId;
-                            return (
-                                <div
-                                    key={f.id}
-                                    onClick={() => { setSelectedFrameId(f.id); setViewMode("single"); }}
-                                    style={{
-                                        borderRadius: 10,
-                                        overflow: "hidden",
-                                        cursor: "pointer",
-                                        border: isSelected ? "2px solid var(--primary)" : "1px solid var(--border)",
-                                        background: "var(--surface)",
-                                        boxShadow: isSelected ? "0 0 0 3px var(--primary-pale)" : "var(--shadow-sm)",
-                                    }}
-                                >
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                        src={f.frame_url}
-                                        alt={f.source_filename}
-                                        style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
-                                    />
-                                    <div style={{ padding: "8px 10px" }}>
-                                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                            {f.source_filename}
+                <div style={{ flex: 1, padding: "20px 24px", overflow: "auto", display: "flex", flexDirection: "column" }}>
+                    {readyFrames.length === 0 ? (
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 10,
+                                padding: "64px 24px",
+                                textAlign: "center",
+                            }}
+                        >
+                            <div className={styles.emptyStateIcon}>
+                                <ImageIcon size={28} color="#8a9bb8" />
+                            </div>
+                            <div className={styles.emptyStateTitle}>
+                                No frames to annotate yet
+                            </div>
+                            <div className={styles.emptyStateSub}>
+                                Frames will appear here once they&apos;re processed. Go to the <strong>Detection</strong>&nbsp;tab to upload your first batch of media.
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <div style={{ fontSize: 13, color: "var(--text3)", marginBottom: 12 }}>
+                                {readyFrames.length} frame{readyFrames.length !== 1 ? "s" : ""} — click to annotate
+                            </div>
+                            <div
+                                className="grid"
+                                style={{
+                                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                                    gap: 12,
+                                }}
+                            >
+                                {readyFrames.map(f => {
+                                    const isSelected = f.id === selectedFrameId;
+                                    return (
+                                        <div
+                                            key={f.id}
+                                            onClick={() => { setSelectedFrameId(f.id); setViewMode("single"); }}
+                                            style={{
+                                                borderRadius: 10,
+                                                overflow: "hidden",
+                                                cursor: "pointer",
+                                                border: isSelected ? "2px solid var(--primary)" : "1px solid var(--border)",
+                                                background: "var(--surface)",
+                                                boxShadow: isSelected ? "0 0 0 3px var(--primary-pale)" : "var(--shadow-sm)",
+                                            }}
+                                        >
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={f.frame_url}
+                                                alt={f.source_filename}
+                                                style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+                                            />
+                                            <div style={{ padding: "8px 10px" }}>
+                                                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                    {f.source_filename}
+                                                </div>
+                                                <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+                                                    {f.detections.length} detection{f.detections.length !== 1 ? "s" : ""}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
-                                            {f.detections.length} detection{f.detections.length !== 1 ? "s" : ""}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
                 </div>
             </>
         );
@@ -1558,7 +1601,7 @@ function AnnotateScreen({
             onEntered={onEntered}
             onBack={() => setViewMode("grid")}
             onFrameChange={i => setSelectedFrameId(readyFrames[i]?.id ?? null)}
-            onFramesRefresh={onFramesRefresh} 
+            onFramesRefresh={onFramesRefresh}
             onRetrain={onRetrain}
             hasCheckpoint={hasCheckpoint}
         />
@@ -2109,7 +2152,7 @@ function AnnotateReview({
     const [reevalResult, setReevalResult] = useState<string | null>(null);
     const [reevalPrompt, setReevalPrompt] = useState("");
     const [showSam3Popup, setShowSam3Popup] = useState(false);
-    
+
     async function handleReevaluate(prompt?: string) {
         const finalPrompt = prompt ?? reevalPrompt;
         if (!frame || !finalPrompt.trim()) return;
@@ -2277,7 +2320,7 @@ function AnnotateReview({
         api.getFrameDetections(projectId, frame.id, ac.signal)
             .then(data => {
                 if (ac.signal.aborted) return;
-                const dets = (data.detections ?? data).filter((d: any) => 
+                const dets = (data.detections ?? data).filter((d: any) =>
                     d.annotation_source !== "human" && !d.is_deleted
                 );
                 setDetections(dets);
@@ -2982,20 +3025,20 @@ function AnnotateReview({
                             </>
                         )}
                         <span className={styles.annotateToolSep} />
-                                <button
-                                    onClick={() => { setShowSam3Popup(v => !v); setReevalResult(null); }}
-                                    className={`${styles.annotateTool} ${showSam3Popup ? styles.annotateToolActive : ""}`}
-                                    title="Re-evaluate with SAM3"
-                                    style={{
-                                        fontSize: 10,
-                                        fontWeight: 700,
-                                        letterSpacing: "0.03em",
-                                        padding: "0 6px",
-                                        minWidth: 36,
-                                    }}
-                                >
-                                    SAM3
-                                </button>
+                        <button
+                            onClick={() => { setShowSam3Popup(v => !v); setReevalResult(null); }}
+                            className={`${styles.annotateTool} ${showSam3Popup ? styles.annotateToolActive : ""}`}
+                            title="Re-evaluate with SAM3"
+                            style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: "0.03em",
+                                padding: "0 6px",
+                                minWidth: 36,
+                            }}
+                        >
+                            SAM3
+                        </button>
                     </div>
                 </div>
 
@@ -3552,7 +3595,7 @@ function AnnotateReview({
                             })}
 
                     </div>
-                        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, flexShrink: 0 }}>
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, flexShrink: 0 }}>
                         {saveError && (
                             <div
                                 style={{
@@ -3739,12 +3782,12 @@ const CLASS_COLORS = [
     "var(--warning)",
     "var(--coral)",
 ];
- 
+
 function ModelsScreen({ projectId }: { projectId: string }) {
     const [data, setData] = useState<ModelPerformanceResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
- 
+
     useEffect(() => {
         async function fetchPerformance() {
             setLoading(true);
@@ -3758,13 +3801,13 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                 setLoading(false);
             }
         }
- 
+
         fetchPerformance();
     }, [projectId]);
- 
+
     // No reviewed detections yet — nothing to evaluate
     const hasNoData = data && data.per_class.length === 0;
- 
+
     return (
         <>
             <div className={styles.topbar}>
@@ -3772,15 +3815,9 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                     <div className={styles.topbarTitle}>Model Performance</div>
                     <div className={styles.topbarSubtitle}>DINOv2-based detector</div>
                 </div>
-                <div className={styles.topbarActions}>
-                    {data && !hasNoData && (
-                        <button className={styles.btnSecondary}>
-                            <Download size={12} /> Export
-                        </button>
-                    )}
-                </div>
+
             </div>
- 
+
             <div className={styles.content}>
                 {/* ── Loading state ── */}
                 {loading && (
@@ -3788,14 +3825,14 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                         Loading model performance...
                     </div>
                 )}
- 
+
                 {/* ── Error state ── */}
                 {error && (
                     <div style={{ color: "var(--danger)", fontSize: 13, padding: "32px 0" }}>
                         {error}
                     </div>
                 )}
- 
+
                 {/* ── No reviewed data yet ── */}
                 {hasNoData && (
                     <div
@@ -3811,25 +3848,25 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                     >
                         <div
                             style={{
-                                width: 48,
-                                height: 48,
-                                borderRadius: 12,
-                                background: "rgba(245,188,98,0.12)",
-                                border: "1.5px solid rgba(245,188,98,0.3)",
+                                width: 72,
+                                height: 72,
+                                borderRadius: 18,
+                                background: "rgba(99, 120, 180, 0.08)",
+                                border: "1.5px solid rgba(99, 120, 180, 0.15)",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
+                                marginBottom: 6,
                             }}
                         >
-                            <Zap size={22} color="var(--warning)" />
+                            <Zap size={28} color="#8a9bb8" />
                         </div>
                         <div>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text1)", marginBottom: 6 }}>
+                            <div className={styles.emptyStateTitle}>
                                 No reviewed detections yet
                             </div>
-                            <div style={{ fontSize: 13, color: "var(--text3)", maxWidth: 320, lineHeight: 1.6 }}>
-                                Model evaluation is calculated from reviewed annotations.
-                                Go to the <strong>Annotate</strong> tab to start reviewing detections.
+                            <div className={styles.emptyStateSub}>
+                                Model evaluation is calculated from reviewed annotations. Go to the <strong>Annotate</strong> tab to start reviewing detections.
                             </div>
                         </div>
                         {data.uncertain_count > 0 && (
@@ -3850,7 +3887,7 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                         )}
                     </div>
                 )}
- 
+
                 {/* ── Data loaded ── */}
                 {data && !hasNoData && (
                     <>
@@ -3877,7 +3914,7 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                                 </span>
                             </div>
                         )}
- 
+
                         <div className={styles.statCardGrid}>
                             <StatCard
                                 label="mAP@0.5"
@@ -3908,7 +3945,7 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                                 color="var(--warning)"
                             />
                         </div>
- 
+
                         <div className={styles.panel}>
                             <div className={styles.panelTitle}>Per-class metrics</div>
                             <div
@@ -3936,7 +3973,7 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                                         {h}
                                     </div>
                                 ))}
- 
+
                                 {data.per_class.map((c, i) => (
                                     <Fragment key={c.label}>
                                         <div
@@ -3966,7 +4003,7 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                                                 {c.label}
                                             </span>
                                         </div>
- 
+
                                         {[c.precision, c.recall, c.f1].map((v, j) => (
                                             <div key={j} style={{ paddingBottom: 10 }}>
                                                 <span
@@ -3985,7 +4022,7 @@ function ModelsScreen({ projectId }: { projectId: string }) {
                                                 </span>
                                             </div>
                                         ))}
- 
+
                                         <div
                                             style={{
                                                 paddingBottom: 10,
@@ -4006,9 +4043,9 @@ function ModelsScreen({ projectId }: { projectId: string }) {
         </>
     );
 }
- 
+
 /* ── Types ──────────────────────────────────────────────────────────────── */
- 
+
 interface ClassMetric {
     label: string;
     precision: number;
@@ -4016,7 +4053,7 @@ interface ClassMetric {
     f1: number;
     samples: number;
 }
- 
+
 interface ModelPerformanceResponse {
     map_at_05: number;
     precision: number;
@@ -4024,7 +4061,7 @@ interface ModelPerformanceResponse {
     uncertain_count: number;
     per_class: ClassMetric[];
 }
- 
+
 
 function StatCard({
     label,
@@ -4113,187 +4150,202 @@ function DatasetsScreen({
                     <div className={styles.topbarTitle}>Datasets</div>
                     <div className={styles.topbarSubtitle}>Manage transect datasets</div>
                 </div>
-                <div className={styles.topbarActions}>
-                    <button className={styles.btnPrimary}>
-                        <Plus size={13} />
-                        New Dataset
-                    </button>
-                </div>
             </div>
             <div className={styles.content}>
-                <div className={styles.statCardGrid} style={{ gridTemplateColumns: "repeat(3,1fr)" }}>
-                    <StatCard
-                        label="Total frames"
-                        value={totalFrames.toLocaleString()}
-                        Icon={ImageIcon}
-                        color="var(--primary)"
-                    />
-                    <StatCard
-                        label="Reviewed frames"
-                        value={reviewed.toLocaleString()}
-                        sub={`${pct}% complete`}
-                        Icon={CheckCircle}
-                        color="var(--success)"
-                    />
-                    <StatCard
-                        label="Active datasets"
-                        value={String(data?.active_datasets ?? 0)}
-                        sub="currently processing"
-                        Icon={Database}
-                        color="var(--teal)"
-                    />
-                </div>
-
-                <div style={{
-                    background: "var(--surface)",
-                    borderRadius: "var(--r-md)",
-                    border: "1px solid var(--border)",
-                    boxShadow: "var(--shadow-sm)",
-                    overflow: "hidden",
-                }}>
-                    <div className={styles.tableHead}>
-                        {["Dataset", "Total Frames", "Frames Reviewed", "Type", "Upload Date", ""].map((h, i) => (
-                            <div key={i} className={styles.tableHeadCell} style={{ textAlign: i === 0 ? "left" : "right" }}>
-                                {h}
-                            </div>
-                        ))}
-                    </div>
-                    {datasets.length === 0 && (
-                        <div style={{ padding: "24px", textAlign: "center", color: "var(--text3)", fontSize: 13 }}>
-                            No datasets yet — upload media to get started.
+                {datasets.length === 0 ? (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 10,
+                            padding: "64px 24px",
+                            textAlign: "center",
+                        }}
+                    >
+                        <div className={styles.emptyStateIcon}>
+                            <Database size={28} color="#8a9bb8" />
                         </div>
-                    )}
-                    {datasets.map(d => {
-                        const pctReviewed = d.frame_count > 0 ? Math.round((d.reviewed_frames / d.frame_count) * 100) : 0;
-                        const isInProgress = d.status !== "ready" && d.status !== "failed";
-                        const dateLabel = isInProgress
-                            ? "In progress"
-                            : new Date(d.created_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+                        <div className={styles.emptyStateTitle}>
+                            No datasets yet
+                        </div>
+                        <div className={styles.emptyStateSub}>
+                            Datasets will appear here once you upload media. Go to the <strong>Detection</strong> tab to upload your first batch of media.
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <div className={styles.statCardGrid} style={{ gridTemplateColumns: "repeat(3,1fr)" }}>
+                            <StatCard
+                                label="Total frames"
+                                value={totalFrames.toLocaleString()}
+                                Icon={ImageIcon}
+                                color="var(--primary)"
+                            />
+                            <StatCard
+                                label="Reviewed frames"
+                                value={reviewed.toLocaleString()}
+                                sub={`${pct}% complete`}
+                                Icon={CheckCircle}
+                                color="var(--success)"
+                            />
+                            <StatCard
+                                label="Active datasets"
+                                value={String(data?.active_datasets ?? 0)}
+                                sub="currently processing"
+                                Icon={Database}
+                                color="var(--teal)"
+                            />
+                        </div>
 
-                        return (
-                            <div key={d.id}>
-                                <div className={styles.tableRow}>
-                                    <div>
-                                        <div className={styles.tableRowName}>{d.name ?? "Untitled dataset"}</div>
-                                        <div style={{ marginTop: 4 }}>
-                                            <ProgressBar
-                                                value={pctReviewed}
-                                                color={pctReviewed === 100 ? "var(--success)" : "var(--primary)"}
-                                                height={3}
-                                            />
-                                        </div>
+                        <div style={{
+                            background: "var(--surface)",
+                            borderRadius: "var(--r-md)",
+                            border: "1px solid var(--border)",
+                            boxShadow: "var(--shadow-sm)",
+                            overflow: "hidden",
+                        }}>
+                            <div className={styles.tableHead}>
+                                {["Dataset", "Total Frames", "Frames Reviewed", "Type", "Upload Date", ""].map((h, i) => (
+                                    <div key={i} className={styles.tableHeadCell} style={{ textAlign: i === 0 ? "left" : "right" }}>
+                                        {h}
                                     </div>
-                                    <div className={`${styles.tableRowValue} ${styles.tableRowMono}`}>
-                                        {d.frame_count.toLocaleString()}
-                                    </div>
-                                    <div className={styles.tableRowValue}>
-                                        {d.reviewed_frames.toLocaleString()}{" "}
-                                        <span style={{ color: "var(--text3)", fontSize: 11 }}>
-                                            ({pctReviewed}%)
-                                        </span>
-                                    </div>
-                                    <div style={{ fontSize: 11, color: "var(--text2)", fontWeight: 500, textAlign: "right" }}>
-                                        {d.upload_type === "image_batch" ? "Image Batch" : d.upload_type === "video" ? "Video" : d.upload_type === "rosbag" ? "ROS Bag" : "Image"}
-                                    </div>
-                                    <div style={{ fontSize: 11, color: "var(--text3)", textAlign: "right" }}>
-                                        {dateLabel}
-                                    </div>
-                                    <div className={styles.tableActions}>
-                                        {/* <button className={styles.btnSecondary} style={{ padding: "4px 9px", fontSize: 11 }}>
+                                ))}
+                            </div>
+                            {datasets.map(d => {
+                                const pctReviewed = d.frame_count > 0 ? Math.round((d.reviewed_frames / d.frame_count) * 100) : 0;
+                                const isInProgress = d.status !== "ready" && d.status !== "failed";
+                                const dateLabel = isInProgress
+                                    ? "In progress"
+                                    : new Date(d.created_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+
+                                return (
+                                    <div key={d.id}>
+                                        <div className={styles.tableRow}>
+                                            <div>
+                                                <div className={styles.tableRowName}>{d.name ?? "Untitled dataset"}</div>
+                                                <div style={{ marginTop: 4 }}>
+                                                    <ProgressBar
+                                                        value={pctReviewed}
+                                                        color={pctReviewed === 100 ? "var(--success)" : "var(--primary)"}
+                                                        height={3}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className={`${styles.tableRowValue} ${styles.tableRowMono}`}>
+                                                {d.frame_count.toLocaleString()}
+                                            </div>
+                                            <div className={styles.tableRowValue}>
+                                                {d.reviewed_frames.toLocaleString()}{" "}
+                                                <span style={{ color: "var(--text3)", fontSize: 11 }}>
+                                                    ({pctReviewed}%)
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: 11, color: "var(--text2)", fontWeight: 500, textAlign: "right" }}>
+                                                {d.upload_type === "image_batch" ? "Image Batch" : d.upload_type === "video" ? "Video" : d.upload_type === "rosbag" ? "ROS Bag" : "Image"}
+                                            </div>
+                                            <div style={{ fontSize: 11, color: "var(--text3)", textAlign: "right" }}>
+                                                {dateLabel}
+                                            </div>
+                                            <div className={styles.tableActions}>
+                                                {/* <button className={styles.btnSecondary} style={{ padding: "4px 9px", fontSize: 11 }}>
                                             Export
                                         </button> */}
-                                        <button
-                                            className={styles.btnSecondary}
-                                            style={{ padding: "4px 9px", fontSize: 11 }}
-                                            onClick={() => {
-                                                if (expandedId === d.id) {
-                                                    setExpandedId(null);
-                                                    setFramesData(null);
-                                                } else {
-                                                    setExpandedId(d.id);
-                                                    fetchFrames(d.id, 1);
-                                                }
-                                            }}
-                                        >
-                                            {expandedId === d.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                        </button>
-                                    </div>
-                                </div>
-                                {expandedId === d.id && (
-                                    <div style={{
-                                        borderTop: "1px solid var(--border)",
-                                        padding: "12px 16px",
-                                        background: "var(--surface2)",
-                                    }}>
-                                        {loadingFrames ? (
-                                            <div style={{ fontSize: 12, color: "var(--text3)" }}>Loading…</div>
-                                        ) : framesData && (
-                                            <>
-                                                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
-                                                    {framesData.frames.map(f => (
-                                                        <button
-                                                            key={f.id}
-                                                            onClick={() => onOpenInAnnotator(f.id)}
-                                                            style={{
-                                                                display: "flex",
-                                                                alignItems: "center",
-                                                                gap: 8,
-                                                                padding: "6px 10px",
-                                                                borderRadius: 6,
-                                                                border: "1px solid var(--border)",
-                                                                background: "var(--surface)",
-                                                                cursor: "pointer",
-                                                                fontFamily: "inherit",
-                                                                textAlign: "left",
-                                                            }}
-                                                        >
-                                                            <span style={{
-                                                                width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-                                                                background: f.is_approved ? "var(--success)" : "var(--text3)",
-                                                            }} />
-                                                            <span style={{ fontSize: 12, color: "var(--text1)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                                {f.source_filename ?? "Unnamed frame"}
-                                                            </span>
-                                                            <span style={{ fontSize: 11, color: "var(--text3)", flexShrink: 0 }}>
-                                                                {f.is_approved ? "Reviewed" : "Unreviewed"}
-                                                            </span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                                {framesData.total_pages > 1 && (
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                        <button
-                                                            onClick={() => fetchFrames(d.id, framesPage - 1)}
-                                                            disabled={framesPage === 1}
-                                                            className={styles.btnSecondary}
-                                                            style={{ padding: "3px 10px", fontSize: 11 }}
-                                                        >
-                                                            Prev
-                                                        </button>
-                                                        <span style={{ fontSize: 11, color: "var(--text3)" }}>
-                                                            {framesPage} / {framesData.total_pages}
-                                                        </span>
-                                                        <button
-                                                            onClick={() => fetchFrames(d.id, framesPage + 1)}
-                                                            disabled={framesPage === framesData.total_pages}
-                                                            className={styles.btnSecondary}
-                                                            style={{ padding: "3px 10px", fontSize: 11 }}
-                                                        >
-                                                            Next
-                                                        </button>
-                                                        <span style={{ fontSize: 11, color: "var(--text3)", marginLeft: "auto" }}>
-                                                            {framesData.total} files total
-                                                        </span>
-                                                    </div>
+                                                <button
+                                                    className={styles.btnSecondary}
+                                                    style={{ padding: "4px 9px", fontSize: 11 }}
+                                                    onClick={() => {
+                                                        if (expandedId === d.id) {
+                                                            setExpandedId(null);
+                                                            setFramesData(null);
+                                                        } else {
+                                                            setExpandedId(d.id);
+                                                            fetchFrames(d.id, 1);
+                                                        }
+                                                    }}
+                                                >
+                                                    {expandedId === d.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {expandedId === d.id && (
+                                            <div style={{
+                                                borderTop: "1px solid var(--border)",
+                                                padding: "12px 16px",
+                                                background: "var(--surface2)",
+                                            }}>
+                                                {loadingFrames ? (
+                                                    <div style={{ fontSize: 12, color: "var(--text3)" }}>Loading…</div>
+                                                ) : framesData && (
+                                                    <>
+                                                        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+                                                            {framesData.frames.map(f => (
+                                                                <button
+                                                                    key={f.id}
+                                                                    onClick={() => onOpenInAnnotator(f.id)}
+                                                                    style={{
+                                                                        display: "flex",
+                                                                        alignItems: "center",
+                                                                        gap: 8,
+                                                                        padding: "6px 10px",
+                                                                        borderRadius: 6,
+                                                                        border: "1px solid var(--border)",
+                                                                        background: "var(--surface)",
+                                                                        cursor: "pointer",
+                                                                        fontFamily: "inherit",
+                                                                        textAlign: "left",
+                                                                    }}
+                                                                >
+                                                                    <span style={{
+                                                                        width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                                                                        background: f.is_approved ? "var(--success)" : "var(--text3)",
+                                                                    }} />
+                                                                    <span style={{ fontSize: 12, color: "var(--text1)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                        {f.source_filename ?? "Unnamed frame"}
+                                                                    </span>
+                                                                    <span style={{ fontSize: 11, color: "var(--text3)", flexShrink: 0 }}>
+                                                                        {f.is_approved ? "Reviewed" : "Unreviewed"}
+                                                                    </span>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                        {framesData.total_pages > 1 && (
+                                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                                <button
+                                                                    onClick={() => fetchFrames(d.id, framesPage - 1)}
+                                                                    disabled={framesPage === 1}
+                                                                    className={styles.btnSecondary}
+                                                                    style={{ padding: "3px 10px", fontSize: 11 }}
+                                                                >
+                                                                    Prev
+                                                                </button>
+                                                                <span style={{ fontSize: 11, color: "var(--text3)" }}>
+                                                                    {framesPage} / {framesData.total_pages}
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => fetchFrames(d.id, framesPage + 1)}
+                                                                    disabled={framesPage === framesData.total_pages}
+                                                                    className={styles.btnSecondary}
+                                                                    style={{ padding: "3px 10px", fontSize: 11 }}
+                                                                >
+                                                                    Next
+                                                                </button>
+                                                                <span style={{ fontSize: 11, color: "var(--text3)", marginLeft: "auto" }}>
+                                                                    {framesData.total} files total
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    </>
                                                 )}
-                                            </>
+                                            </div>
                                         )}
                                     </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                                );
+                            })}
+                        </div>
+                    </>
+                )}
             </div>
         </>
     );

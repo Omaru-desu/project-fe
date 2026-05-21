@@ -112,6 +112,8 @@ export default function ProjectModal({
                     padding: 30,
                     width: 460,
                     maxWidth: "calc(100vw - 32px)",
+                    maxHeight: "calc(100vh - 64px)",
+                    overflowY: "auto",
                     boxShadow: "0 20px 60px rgba(20,30,60,0.2)",
                     border: "1px solid var(--border)",
                 }}
