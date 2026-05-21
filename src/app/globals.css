@@ -3,34 +3,40 @@
 @tailwind utilities;
 
 :root {
+  /* Surfaces */
   --bg: #f4f6fb;
   --surface: #ffffff;
   --surface2: #f9fafd;
   --border: #e8ecf5;
 
-  --primary: #839bce;
-  --primary-dark: #4a6fc4;
-  --primary-light: #d6e4f8;
-  --primary-pale: #f0f5fd;
+  /* Brand */
+  --navy: #152a6a;
+  --primary: #2848c4;
+  --primary-dark: #1d3699;
+  --primary-light: #6e85e0;
+  --primary-pale: #dbe2f5;
 
-  --navy: #2e4a80;
-  --teal: #5ecece;
-  --coral: #f5957f;
+  /* Accent (the purple pop) */
+  --accent: #974aad;
+  --accent-light: #d18ce0;
+  --accent-pale: #f0dff5;
 
-  --text1: #232a45;
-  --text2: #5a638a;
-  --text3: #9aa2c0;
+  /* Text */
+  --text1: #0f1a3d;
+  --text2: #3a4570;
+  --text3: #7e8aad;
 
-  --success: #5ec99a;
-  --warning: #f5bc62;
-  --danger: #f07070;
+  /* Semantic */
+  --success: #1d9e75;
+  --warning: #e89838;
+  --danger: #d4636e;
+  --coral: #d4636e;
+  --teal: #2fa896;
 
-  --shadow-sm: 0 1px 4px rgba(46, 74, 128, 0.06);
-  --shadow-md: 0 4px 16px rgba(46, 74, 128, 0.09);
-
-  --r-sm: 8px;
-  --r-md: 14px;
-  --r-lg: 20px;
+  /* Shadows & radii (kept from your existing system) */
+  --shadow-sm: 0 1px 2px rgba(15, 26, 61, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 26, 61, 0.1);
+  --r-md: 10px;
 
   /* Legacy aliases — kept so older CSS modules render with the new palette. */
   --ink: #ffffff;
@@ -42,7 +48,10 @@
 }
 
 @layer base {
-  *, *::before, *::after {
+
+  *,
+  *::before,
+  *::after {
     box-sizing: border-box;
   }
 

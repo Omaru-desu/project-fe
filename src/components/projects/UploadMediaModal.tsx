@@ -138,7 +138,11 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
 
     return (
         <div className={styles.overlay} onClick={onClose}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div
+                className={styles.modal}
+                onClick={e => e.stopPropagation()}
+
+            >
                 <div className={styles.card}>
 
                     {/* STEP 1 */}
@@ -202,11 +206,22 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                         </div>
                     </div>
                     <div className={styles.mediaTypeBody}>
+                        <label
+                            style={{
+                                display: "block",
+                                fontSize: 12,
+                                fontWeight: 600,
+                                color: "var(--text2)",
+                                marginBottom: 6,
+                            }}
+                        >
+                            Dataset name
+                        </label>
                         <input
                             type="text"
                             value={name}
                             onChange={e => setName(e.target.value)}
-                            placeholder="Name this dataset… e.g. Coral Sea 01"
+                            placeholder="e.g. Coral Sea 01"
                             style={{
                                 width: "100%",
                                 padding: "10px 14px",
@@ -323,7 +338,7 @@ export default function UploadMediaModal({ projectId, onClose, onUploadComplete 
                         <span className={`${styles.footerHint} ${files.length > 0 ? styles.footerHintActive : ""}`}>{footerHint()}</span>
                         <div className={styles.footerRight}>
                             <button className={styles.btnClear} onClick={clearAll} disabled={!files.length || uploading}>
-                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                                 Clear all
                             </button>
                             <button className={styles.btnUploadMain} onClick={startUpload} disabled={!canUpload}>
