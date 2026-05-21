@@ -552,16 +552,16 @@
 }
 
 .frameThumb {
-    border-radius: 9px;
+    border-radius: 10px;
     overflow: hidden;
     cursor: pointer;
     position: relative;
-    border: 3px solid transparent;
+    border: 2px solid transparent;
     box-shadow: var(--shadow-sm);
     transition: all 0.15s;
     height: 180px;
     aspect-ratio: unset;
-    background: #11293f;
+    background: var(--surface2);
 }
 
 .frameThumb:hover {
@@ -569,7 +569,10 @@
     box-shadow: var(--shadow-md);
 }
 
-.frameThumbSelected {}
+.frameThumbSelected {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-pale);
+}
 
 .frameThumbImg {
     position: absolute;
@@ -1762,6 +1765,7 @@
 }
 
 .emptyStateRich {
+    grid-column: 1 / -1;
     display: flex;
     flex-direction: column;
     align-items: center;

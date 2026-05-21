@@ -56,15 +56,6 @@ export default function Navbar() {
                         {displayName}
                     </span>
                 )}
-                <form action={logout}>
-                    <button
-                        type="submit"
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] text-text2 border border-border bg-surface hover:bg-surface2 transition-colors"
-                    >
-                        <LogOut size={13} />
-                        Log out
-                    </button>
-                </form>
                 <span
                     className="flex items-center justify-center text-[12px] font-bold text-white"
                     style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--primary)" }}
@@ -73,6 +64,30 @@ export default function Navbar() {
                         ? displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
                         : "?"}
                 </span>
+                <form action={logout}>
+                    <button
+                        type="submit"
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "6px 12px",
+                            borderRadius: 7,
+                            border: "1.5px solid var(--border)",
+                            background: "var(--surface)",
+                            fontSize: 12,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            color: "var(--text2)",
+                            transition: "background 0.15s",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "var(--surface2)")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "var(--surface)")}
+                    >
+                        <LogOut size={13} />
+                        Log out
+                    </button>
+                </form>
             </div>
         </nav>
     );

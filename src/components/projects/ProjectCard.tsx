@@ -26,9 +26,10 @@ const STATUS_BADGE: Record<ProjectType, { bg: string; color: string; dot: string
 };
 
 const STRIP_GRADIENT: Record<ProjectType, string> = {
-    active: "linear-gradient(90deg, var(--primary), var(--teal))",
-    test: "linear-gradient(90deg, var(--warning), #9fba3e)",
+    active: "var(--primary)",
+    test: "var(--primary)",
 };
+
 
 function formatUpdated(iso?: string, fallback?: string): string {
     const value = iso ?? fallback;
@@ -134,9 +135,8 @@ export default function ProjectCard({ project, onEditAction, onDeleteAction }: P
                         gap: 4,
                         fontSize: 10,
                         fontWeight: 600,
-                        color: project.model_type === "custom" ? "var(--text2)" : "var(--primary)",
-                        background: project.model_type === "custom" ? "var(--surface2)" : "rgba(74,111,196,0.08)",
-                        // border: `1px solid ${project.model_type === "custom" ? "var(--border)" : "rgba(74,111,196,0.3)"}`,
+                        color: project.model_type === "custom" ? "var(--accent)" : "var(--primary)",
+                        background: project.model_type === "custom" ? "rgba(176, 77, 204, 0.1)" : "rgba(40, 72, 196, 0.08)",
                         borderRadius: 99,
                         padding: "2px 8px",
                         marginBottom: 12,
