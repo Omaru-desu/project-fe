@@ -3301,20 +3301,27 @@ function AnnotateReview({
                                             >
                                                 ×
                                             </button>
-                                            {/* Checkmark circle — marks as reviewed; locked once reviewed */}
+                                            {/* Checkmark circle — toggleable until the frame is approved */}
                                             <button
                                                 onClick={e => {
                                                     e.stopPropagation();
-                                                    if (isReviewed) return;
+                                                    if (frameAlreadyApproved) return;
+                                                    const nextReviewed = !isReviewed;
                                                     setDetections(prev => prev.map(det =>
-                                                        det.id === d.id ? { ...det, status: "reviewed" } : det
+                                                        det.id === d.id ? { ...det, status: nextReviewed ? "reviewed" : "needs_review" } : det
                                                     ));
-                                                    api.reviewDetectionLabel(d.id, d.display_label ?? "")
+                                                    api.setDetectionReviewed(d.id, nextReviewed, d.display_label ?? "")
                                                         .then(recordSave)
                                                         .catch(err => setSaveError(err?.message ?? "Failed to save"));
                                                 }}
-                                                title={isReviewed ? "Reviewed" : "Mark as reviewed"}
-                                                disabled={isReviewed}
+                                                title={
+                                                    frameAlreadyApproved
+                                                        ? "Frame approved — locked"
+                                                        : isReviewed
+                                                            ? "Mark as needs review"
+                                                            : "Mark as reviewed"
+                                                }
+                                                disabled={frameAlreadyApproved}
                                                 style={{
                                                     background: isReviewed ? "#1D9E75" : "none",
                                                     border: `1.5px solid ${isReviewed ? "#1D9E75" : "var(--text3)"}`,
@@ -3322,7 +3329,7 @@ function AnnotateReview({
                                                     width: 20,
                                                     height: 20,
                                                     flexShrink: 0,
-                                                    cursor: isReviewed ? "default" : "pointer",
+                                                    cursor: frameAlreadyApproved ? "default" : "pointer",
                                                     display: "flex",
                                                     alignItems: "center",
                                                     justifyContent: "center",

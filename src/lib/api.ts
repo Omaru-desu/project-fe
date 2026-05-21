@@ -151,6 +151,23 @@ export async function reviewDetectionLabel(id: string, newLabel: string): Promis
     return handleResponse<void>(res);
 }
 
+export async function setDetectionReviewed(id: string, reviewed: boolean, label?: string): Promise<void> {
+    if (reviewed) {
+        // Existing /label endpoint also flips status to "reviewed" server-side.
+        return reviewDetectionLabel(id, label ?? "");
+    }
+    // TODO: backend endpoint not implemented. Drop the early return once it exists.
+    // Expected: PATCH /api/detections/:id/review  body: { reviewed: false }
+    void id;
+    return;
+    // const res = await fetch(`${API_URL}/api/detections/${id}/review`, {
+    //     method: 'PATCH',
+    //     headers: await authHeaders(),
+    //     body: JSON.stringify({ reviewed: false }),
+    // });
+    // return handleResponse<void>(res);
+}
+
 export async function getFrameDetections(projectId: string, frameId: string, signal?: AbortSignal) {
     try {
         const res = await fetch(`${API_URL}/api/projects/${projectId}/frames/${frameId}/detections`, {
