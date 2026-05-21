@@ -549,9 +549,6 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     align-content: start;
-    display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
 }
 
 .frameThumb {
