@@ -549,6 +549,9 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     align-content: start;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
 }
 
 .frameThumb {
@@ -1759,4 +1762,43 @@
     letter-spacing: 0.02em;
     z-index: 4;
     pointer-events: none;
+}
+
+.emptyStateRich {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 80px 32px;
+    text-align: center;
+    width: 100%;
+    min-height: 400px;
+}
+
+.emptyStateIcon {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+    background: rgba(99, 120, 180, 0.08);
+    border: 1.5px solid rgba(99, 120, 180, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+}
+
+.emptyStateTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #3d4f6e;
+    letter-spacing: -0.01em;
+}
+
+.emptyStateSub {
+    font-size: 12.5px;
+    color: #8a9bb8;
+    max-width: 260px;
+    line-height: 1.6;
+    margin-top: 2px;
 }

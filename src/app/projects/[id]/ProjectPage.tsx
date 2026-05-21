@@ -1024,13 +1024,56 @@ function GalleryScreen({
                                 : representatives;
 
                         if (representatives.length === 0) {
+                            const isProcessing = processingList.some(p => p.status === "processing");
+                            const noMedia = frames.length === 0 && !isProcessing;
+
                             return (
-                                <div className={styles.emptyState}>
-                                    {frames.length === 0
-                                        ? processingList.some(p => p.status === "processing")
-                                            ? "Waiting for frames…"
-                                            : "No frames yet — upload media to get started."
-                                        : "No detections match this filter."}
+                                <div style={{ 
+                                    width: "100%", 
+                                    display: "flex", 
+                                    alignItems: "center", 
+                                    justifyContent: "center" 
+                                }}>
+                                    <div className={styles.emptyStateRich}>
+                                        <div className={styles.emptyStateIcon}>
+                                            {noMedia ? (
+                                                <ImageIcon size={28} color="#8a9bb8" />
+                                            ) : isProcessing ? (
+                                                <Activity size={28} color="#8a9bb8" />
+                                            ) : (
+                                                <Search size={28} color="#8a9bb8" />
+                                            )}
+                                        </div>
+                                        <div className={styles.emptyStateTitle}>
+                                            {noMedia
+                                                ? "No media uploaded yet"
+                                                : isProcessing
+                                                ? "Waiting for frames…"
+                                                : "No detections match this filter"}
+                                        </div>
+                                        <div className={styles.emptyStateSub}>
+                                            {noMedia
+                                                ? "Upload video or images to start detecting and annotating marine life"
+                                                : isProcessing
+                                                ? "Frames are being processed — results will appear shortly"
+                                                : "Try adjusting your search or clearing the active filter"}
+                                        </div>
+                                        {noMedia && (
+                                            <button onClick={onUpload} className={styles.btnSecondary} style={{ marginTop: 8 }}>
+                                                <Plus size={13} />
+                                                Upload media
+                                            </button>
+                                        )}
+                                        {!noMedia && !isProcessing && statusFilter !== "all" && (
+                                            <button
+                                                onClick={() => setStatusFilter("all")}
+                                                className={styles.btnSecondary}
+                                                style={{ marginTop: 8 }}
+                                            >
+                                                Clear filter
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             );
                         }
