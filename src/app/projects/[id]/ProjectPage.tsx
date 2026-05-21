@@ -362,7 +362,13 @@ export default function ProjectPage({ projectId }: Props) {
         try {
             const res = await api.getSimilarDetections(projectId, detectionId, 30);
             if (seq !== semanticSeqRef.current) return;
-            setSemanticResults(res.results);
+            const sourceTrackId = detections.find(d => d.id === detectionId)?.track_id ?? null;
+            let filtered = res.results;
+            if (sourceTrackId) {
+                const trackByDetId = new Map(detections.map(d => [d.id, d.track_id ?? null]));
+                filtered = res.results.filter(r => trackByDetId.get(r.detection_id) !== sourceTrackId);
+            }
+            setSemanticResults(filtered);
         } catch (err: unknown) {
             if (seq !== semanticSeqRef.current) return;
             setSemanticError(err instanceof Error ? err.message : "Similar search failed");
@@ -1474,7 +1480,9 @@ function AnnotateScreen({
     onRetrain: () => void;
     hasCheckpoint: boolean;
 }) {
-    const readyFrames = frames.filter(f => f.status !== "queued");
+    const readyFrames = frames
+        .filter(f => f.status !== "queued")
+        .sort((a, b) => a.source_filename.localeCompare(b.source_filename, undefined, { numeric: true }));
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(
         initialFrameId ?? readyFrames[0]?.id ?? null
     );
