@@ -229,8 +229,11 @@ export default function ProjectPage({ projectId }: Props) {
         api.getProjectFrames(projectId)
             .then(async data => {
                 if (cancelled) return;
-                setFrames(data.frames as FrameRow[]);
-                rebuildDetections(data.frames as FrameRow[]);
+                const sorted = [...(data.frames as FrameRow[])].sort((a, b) =>
+                    a.source_filename.localeCompare(b.source_filename)
+                );
+                setFrames(sorted);
+                rebuildDetections(sorted);
 
                 const uploadIds = [...new Set(
                     data.frames.map((f: any) => f.upload_id).filter(Boolean)
@@ -296,8 +299,11 @@ export default function ProjectPage({ projectId }: Props) {
                 ));
 
                 const data = await api.getProjectFrames(projectId);
-                setFrames(data.frames as FrameRow[]);
-                rebuildDetections(data.frames as FrameRow[]);
+                const sorted = [...(data.frames as FrameRow[])].sort((a, b) =>
+                    a.source_filename.localeCompare(b.source_filename)
+                );
+                setFrames(sorted);
+                rebuildDetections(sorted);
 
                 const done = status.status === "segmented" ||
                     status.status === "failed" ||
@@ -372,9 +378,12 @@ export default function ProjectPage({ projectId }: Props) {
     }
 
     async function refreshFrames() {
-        const data = await api.getProjectFrames(projectId);
-        setFrames(data.frames as FrameRow[]);
-        rebuildDetections(data.frames as FrameRow[]);
+    const data = await api.getProjectFrames(projectId);
+    const sorted = [...(data.frames as FrameRow[])].sort((a, b) =>
+        a.source_filename.localeCompare(b.source_filename)
+    );
+    setFrames(sorted);
+    rebuildDetections(sorted);
     }
 
     // Stats
