@@ -43,6 +43,7 @@ import { logout } from "../../login/actions";
 import styles from "./ProjectPage.module.css";
 import UploadMediaModal from "../../../components/projects/UploadMediaModal";
 import ReviewModal from "../../../components/projects/ReviewModal";
+import TrackFocusControl from "../../../components/projects/TrackFocusControl";
 
 interface Props {
     projectId: string;
@@ -2044,9 +2045,26 @@ function AnnotateReview({
     const [loadingDets, setLoadingDets] = useState(false);
     const [loadingBboxes, setLoadingBboxes] = useState(false);
     const [labelColorMap, setLabelColorMap] = useState<Map<string, string>>(new Map());
+    const [focusedTrackId, setFocusedTrackId] = useState<string | null>(null);
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
     const detectionGroups = useMemo(() => groupDetections(detections), [detections]);
-    const reviewedCount = detectionGroups.filter(({ primary: d }) => d.status === "reviewed").length + boundingBoxes.length;
-    const totalCount = detectionGroups.length + boundingBoxes.length;
+    const visibleDetectionGroups = useMemo(
+        () => (focusedTrackId
+            ? detectionGroups.filter(g => g.primary.track_id === focusedTrackId)
+            : detectionGroups),
+        [detectionGroups, focusedTrackId],
+    );
+    const visibleBoundingBoxes = useMemo(
+        () => (focusedTrackId
+            ? boundingBoxes.filter(b => b.track_id === focusedTrackId)
+            : boundingBoxes),
+        [boundingBoxes, focusedTrackId],
+    );
+    const focusedTrackPresent =
+        focusedTrackId != null
+        && (visibleDetectionGroups.length > 0 || visibleBoundingBoxes.length > 0);
+    const reviewedCount = visibleDetectionGroups.filter(({ primary: d }) => d.status === "reviewed").length + visibleBoundingBoxes.length;
+    const totalCount = visibleDetectionGroups.length + visibleBoundingBoxes.length;
 
     // selection
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -2234,6 +2252,7 @@ function AnnotateReview({
             if (!c) return;
             c.width = wrap.clientWidth;
             c.height = wrap.clientHeight;
+            setCanvasSize({ width: wrap.clientWidth, height: wrap.clientHeight });
             fitImage();
         });
         obs.observe(wrap);
@@ -2270,6 +2289,11 @@ function AnnotateReview({
                     }
                     didApplyInitial.current = true;
                     onEntered();
+                }
+                if (focusedTrackId) {
+                    const focused = dets.find((d: any) => d.track_id === focusedTrackId);
+                    setActiveId(focused ? focused.id : null);
+                    setActiveType(focused ? "det" : null);
                 }
                 setLabelColorMap(buildLabelColorMap(dets));
             })
@@ -2317,7 +2341,7 @@ function AnnotateReview({
         ctx.drawImage(img, ox, oy, img.naturalWidth * scale, img.naturalHeight * scale);
 
         if (!hideDetections) {
-            detectionGroups.forEach(({ primary: d }) => {
+            visibleDetectionGroups.forEach(({ primary: d }) => {
                 const [x1, y1, x2, y2] = d.bbox;
                 const sx1 = x1 * scale + ox, sy1 = y1 * scale + oy;
                 const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
@@ -2350,7 +2374,7 @@ function AnnotateReview({
                 ctx.restore();
             });
 
-            boundingBoxes.forEach(b => {
+            visibleBoundingBoxes.forEach(b => {
                 const [x1, y1, x2, y2] = b.bbox;
                 const sx1 = x1 * scale + ox, sy1 = y1 * scale + oy;
                 const sw = (x2 - x1) * scale, sh = (y2 - y1) * scale;
@@ -2427,7 +2451,7 @@ function AnnotateReview({
             ctx.fillText(tag, sx + 4, sy - 4);
             ctx.restore();
         }
-    }, [detectionGroups, boundingBoxes, labelColorMap, activeId, activeType, hovId, hideDetections, tf, pendingBox, labelInput]);
+    }, [visibleDetectionGroups, visibleBoundingBoxes, labelColorMap, activeId, activeType, hovId, hideDetections, tf, pendingBox, labelInput]);
 
     const drawRef = useRef(draw);
     drawRef.current = draw;
@@ -2442,7 +2466,13 @@ function AnnotateReview({
         function onKey(e: KeyboardEvent) {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if ((e.key === "Delete" || e.key === "Backspace") && activeId && activeType === "bbox") handleDeleteBbox(activeId);
-            if (e.key === "Escape") { setActiveId(null); setActiveType(null); setPendingBox(null); setMode("select"); }
+            if (e.key === "Escape") {
+                if (focusedTrackId) {
+                    setFocusedTrackId(null);
+                } else {
+                    setActiveId(null); setActiveType(null); setPendingBox(null); setMode("select");
+                }
+            }
             if (e.key === "h" || e.key === "H") setHideDetections(v => !v);
             if (e.key === "d" || e.key === "D") { setMode("draw"); setPendingBox(null); }
             if (e.key === "s" || e.key === "S") setMode("select");
@@ -2452,7 +2482,7 @@ function AnnotateReview({
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeId, activeType, activeFrameIndex, frames.length]);
+    }, [activeId, activeType, activeFrameIndex, frames.length, focusedTrackId]);
 
     // "Saved · Xs ago" toast — tick every second while visible, clear after 10s
     useEffect(() => {
@@ -2478,8 +2508,8 @@ function AnnotateReview({
             return;
         }
         const allBoxes = [
-            ...(!hideDetections ? detectionGroups.map(g => ({ id: g.primary.id, type: "det" as const, box: g.primary.bbox })) : []),
-            ...(!hideDetections ? boundingBoxes.map(b => ({ id: b.id, type: "bbox" as const, box: b.bbox })) : []),
+            ...(!hideDetections ? visibleDetectionGroups.map(g => ({ id: g.primary.id, type: "det" as const, box: g.primary.bbox })) : []),
+            ...(!hideDetections ? visibleBoundingBoxes.map(b => ({ id: b.id, type: "bbox" as const, box: b.bbox })) : []),
         ];
         if (activeId) {
             const active = allBoxes.find(b => b.id === activeId);
@@ -2548,11 +2578,11 @@ function AnnotateReview({
         const { ix, iy } = toImg(cx, cy);
         let found: string | null = null;
         if (!hideDetections) {
-            for (const b of [...boundingBoxes].reverse()) {
+            for (const b of [...visibleBoundingBoxes].reverse()) {
                 const [x1, y1, x2, y2] = b.bbox;
                 if (ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2) { found = b.id; break; }
             }
-            if (!found) for (const { primary: d } of [...detectionGroups].reverse()) {
+            if (!found) for (const { primary: d } of [...visibleDetectionGroups].reverse()) {
                 const [x1, y1, x2, y2] = d.bbox;
                 if (ix >= x1 && ix <= x2 && iy >= y1 && iy <= y2) { found = d.id; break; }
             }
@@ -2691,7 +2721,7 @@ function AnnotateReview({
     }
 
     async function handleMarkAllCorrect() {
-        const unreviewedDets = detectionGroups
+        const unreviewedDets = visibleDetectionGroups
             .filter(({ primary: d }) => d.status === "needs_review")
             .map(({ primary: d }) => ({ id: d.id, label: d.display_label ?? "" }));
 
@@ -2769,6 +2799,18 @@ function AnnotateReview({
     const zoomPct = Math.round(zoomLevel * 100);
     const activeDet = detections.find(d => d.id === activeId && activeType === "det");
 
+    const focusBox = useMemo(() => {
+        if (!activeId || !activeType) return null;
+        if (activeType === "det") {
+            const d = detections.find(x => x.id === activeId);
+            if (!d) return null;
+            return { id: d.id, type: "det" as const, bbox: d.bbox, track_id: d.track_id ?? null };
+        }
+        const b = boundingBoxes.find(x => x.id === activeId);
+        if (!b) return null;
+        return { id: b.id, type: "bbox" as const, bbox: b.bbox, track_id: b.track_id ?? null };
+    }, [activeId, activeType, detections, boundingBoxes]);
+
     return (
         <div className={styles.annotateShell}>
             {/* Header */}
@@ -2813,6 +2855,16 @@ function AnnotateReview({
                                 dragRef.current = null; resizeRef.current = null;
                             }
                         }}
+                    />
+
+                    <TrackFocusControl
+                        box={focusBox}
+                        transform={tf}
+                        canvasSize={canvasSize}
+                        focusedTrackId={focusedTrackId}
+                        focusedTrackPresent={focusedTrackPresent}
+                        onFocus={(trackId) => setFocusedTrackId(trackId)}
+                        onExitFocus={() => setFocusedTrackId(null)}
                     />
 
                     {mode === "draw" && !pendingBox && (
@@ -3092,7 +3144,7 @@ function AnnotateReview({
                                 Loading…
                             </div>
                         ) : (
-                            detectionGroups.map(({ primary: d, overlapping }) => {
+                            visibleDetectionGroups.map(({ primary: d, overlapping }) => {
                                 const active = d.id === activeId && activeType === "det";
                                 const isEditing = editingDetectionId === d.id;
                                 const currentLabel = pendingLabels.get(d.id) ?? d.display_label ?? "Unknown";
@@ -3344,7 +3396,7 @@ function AnnotateReview({
                         )}
 
                         {!loadingBboxes &&
-                            boundingBoxes.map(b => {
+                            visibleBoundingBoxes.map(b => {
                                 const active = b.id === activeId && activeType === "bbox";
                                 const bboxColor = labelColorMap.get(b.display_label) ?? "#34d399";
                                 const isEditingBbox = editingDetectionId === b.id;
